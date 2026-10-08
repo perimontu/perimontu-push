@@ -1,27 +1,23 @@
 using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
-using CoberPush.Api.Options;
-using Microsoft.Extensions.Options;
+using CoberPush.Api.Projects;
 
 namespace CoberPush.Api.Services;
 
-public sealed class HmacReceiptSigner(IOptions<ReceiptOptions> options, TimeProvider clock) : IReceiptSigner
+public sealed class HmacReceiptSigner(TimeProvider clock) : IReceiptSigner
 {
     private const int MAX_CLOCK_SKEW_SECONDS = 300;
 
-    private readonly ReceiptOptions _options = options.Value;
-    private readonly byte[] _key = Encoding.UTF8.GetBytes(options.Value.HmacSecret);
-
-    public string Sign(string messageId, long sentAtUnixSeconds)
+    public string Sign(Project project, string messageId, long sentAtUnixSeconds)
     {
-        var payload = Encoding.UTF8.GetBytes($"{messageId}.{sentAtUnixSeconds}");
-        return Base64Url.EncodeToString(HMACSHA256.HashData(_key, payload));
+        var payload = Encoding.UTF8.GetBytes($"{project.Id}.{messageId}.{sentAtUnixSeconds}");
+        return Base64Url.EncodeToString(HMACSHA256.HashData(project.ReceiptSecret, payload));
     }
 
-    public ReceiptVerification Verify(string messageId, long sentAtUnixSeconds, string receipt)
+    public ReceiptVerification Verify(Project project, string messageId, long sentAtUnixSeconds, string receipt)
     {
-        var expected = Encoding.UTF8.GetBytes(Sign(messageId, sentAtUnixSeconds));
+        var expected = Encoding.UTF8.GetBytes(Sign(project, messageId, sentAtUnixSeconds));
         var received = Encoding.UTF8.GetBytes(receipt);
 
         // Primero la firma: así un tercero sin clave no puede sondear la vigencia.
@@ -30,10 +26,10 @@ public sealed class HmacReceiptSigner(IOptions<ReceiptOptions> options, TimeProv
             return ReceiptVerification.Invalid;
         }
 
-        return CheckAge(sentAtUnixSeconds);
+        return CheckAge(project, sentAtUnixSeconds);
     }
 
-    private ReceiptVerification CheckAge(long sentAtUnixSeconds)
+    private ReceiptVerification CheckAge(Project project, long sentAtUnixSeconds)
     {
         var now = clock.GetUtcNow().ToUnixTimeSeconds();
 
@@ -42,7 +38,7 @@ public sealed class HmacReceiptSigner(IOptions<ReceiptOptions> options, TimeProv
             return ReceiptVerification.Invalid;
         }
 
-        var maxAgeSeconds = TimeSpan.FromDays(_options.MaxAgeDays).TotalSeconds;
+        var maxAgeSeconds = TimeSpan.FromDays(project.ReceiptMaxAgeDays).TotalSeconds;
         return now - sentAtUnixSeconds > maxAgeSeconds ? ReceiptVerification.Expired : ReceiptVerification.Valid;
     }
 }

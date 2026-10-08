@@ -1,80 +1,69 @@
 using CoberPush.Api.Models;
-using CoberPush.Api.Options;
-using FirebaseAdmin;
+using CoberPush.Api.Projects;
 using FirebaseAdmin.Messaging;
-using Google.Apis.Auth.OAuth2;
-using Microsoft.Extensions.Options;
 
 namespace CoberPush.Api.Services;
 
-/// <summary>
-/// Envía por FCM. La app de Firebase se crea de forma perezosa (primer envío) con las credenciales por defecto
-/// (<c>GOOGLE_APPLICATION_CREDENTIALS</c>); así la API arranca y responde /health aunque la credencial falte.
-/// </summary>
-public sealed class FirebasePushSender : IPushSender
+/// <summary>Envía por FCM usando el cliente del proyecto indicado en cada llamada.</summary>
+public sealed class FirebasePushSender(
+    PushMessageFactory factory,
+    IFirebaseMessagingProvider provider,
+    ILogger<FirebasePushSender> logger) : IPushSender
 {
-    private readonly PushMessageFactory _factory;
-    private readonly ILogger<FirebasePushSender> _logger;
-    private readonly Lazy<FirebaseMessaging> _messaging;
-
-    public FirebasePushSender(
-        PushMessageFactory factory, IOptions<FirebaseOptions> firebaseOptions, ILogger<FirebasePushSender> logger)
-    {
-        _factory = factory;
-        _logger = logger;
-        _messaging = new Lazy<FirebaseMessaging>(
-            () => CreateMessaging(firebaseOptions.Value.ProjectId), LazyThreadSafetyMode.PublicationOnly);
-    }
+    private const string HEALTH_TOPIC = "healthcheck";
 
     public async Task<PushSendResult> SendToTokensAsync(
-        PushContent content, IReadOnlyList<string> tokens, bool dryRun, CancellationToken ct = default)
+        Project project, PushContent content, IReadOnlyList<string> tokens, bool dryRun, CancellationToken ct = default)
     {
-        var message = _factory.CreateForTokens(content, tokens);
-        var response = await _messaging.Value.SendEachForMulticastAsync(message, dryRun, ct);
+        var message = factory.CreateForTokens(content, tokens);
+        var response = await provider.GetMessaging(project).SendEachForMulticastAsync(message, dryRun, ct);
 
         var results = response.Responses
             .Select((r, i) => ToTargetResult(TokenMasker.Mask(tokens[i]), r))
             .ToList();
 
-        return BuildResult(content.MessageId, results);
+        return BuildResult(project, content.MessageId, results);
     }
 
     public async Task<PushSendResult> SendToTopicAsync(
-        PushContent content, string topic, bool dryRun, CancellationToken ct = default)
+        Project project, PushContent content, string topic, bool dryRun, CancellationToken ct = default)
     {
-        var message = _factory.CreateForTopic(content, topic);
+        var message = factory.CreateForTopic(content, topic);
+        var messaging = provider.GetMessaging(project);
 
         try
         {
-            var fcmId = await _messaging.Value.SendAsync(message, dryRun, ct);
-            return BuildResult(content.MessageId, [new PushTargetResult($"topic:{topic}", true, fcmId, null, false)]);
+            var fcmId = await messaging.SendAsync(message, dryRun, ct);
+            return BuildResult(project, content.MessageId, [new PushTargetResult($"topic:{topic}", true, fcmId, null, false)]);
         }
         catch (FirebaseMessagingException ex)
         {
-            _logger.LogWarning(ex, "FCM rechazó el envío al topic {Topic}: {Code}", topic, ex.MessagingErrorCode);
-            var code = ex.MessagingErrorCode;
-            return BuildResult(content.MessageId,
-                [new PushTargetResult($"topic:{topic}", false, null, FcmErrorMapper.ToCode(code), false)]);
+            logger.LogWarning(ex, "FCM rechazó el envío al topic {Topic} ({Project}): {Code}",
+                topic, project.Id, ex.MessagingErrorCode);
+
+            return BuildResult(project, content.MessageId,
+                [new PushTargetResult($"topic:{topic}", false, null, FcmErrorMapper.ToCode(ex.MessagingErrorCode), false)]);
         }
     }
 
-    private static FirebaseMessaging CreateMessaging(string projectId)
+    public async Task<bool> CheckConnectivityAsync(Project project, CancellationToken ct = default)
     {
+        var messaging = provider.GetMessaging(project);
+        var probe = new Message
+        {
+            Topic = HEALTH_TOPIC,
+            Data = new Dictionary<string, string> { ["type"] = "healthcheck" }
+        };
+
         try
         {
-            var app = FirebaseApp.DefaultInstance ?? FirebaseApp.Create(new AppOptions
-            {
-                Credential = GoogleCredential.GetApplicationDefault(),
-                ProjectId = projectId
-            });
-
-            return FirebaseMessaging.GetMessaging(app);
+            await messaging.SendAsync(probe, dryRun: true, ct);
+            return true;
         }
-        catch (Exception ex) when (ex is InvalidOperationException or AggregateException or IOException
-            or System.Text.Json.JsonException or ArgumentException)
+        catch (FirebaseMessagingException ex)
         {
-            throw new FirebaseUnavailableException(
-                "No se pudo inicializar Firebase: revise GOOGLE_APPLICATION_CREDENTIALS.", ex);
+            logger.LogWarning(ex, "Health de Firebase fallido ({Project}): {Code}", project.Id, ex.MessagingErrorCode);
+            return false;
         }
     }
 
@@ -90,9 +79,9 @@ public sealed class FirebasePushSender : IPushSender
             target, false, null, FcmErrorMapper.ToCode(code), FcmErrorMapper.ShouldRemoveToken(code));
     }
 
-    private static PushSendResult BuildResult(string messageId, IReadOnlyList<PushTargetResult> results)
+    private static PushSendResult BuildResult(Project project, string messageId, IReadOnlyList<PushTargetResult> results)
     {
         var success = results.Count(r => r.Success);
-        return new PushSendResult(messageId, success, results.Count - success, results);
+        return new PushSendResult(project.Id, messageId, success, results.Count - success, results);
     }
 }

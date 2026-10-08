@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace CoberPush.Api.Options;
 
-/// <summary>Límites y reglas del contenido de las notificaciones.</summary>
+/// <summary>Límites y reglas globales del contenido de las notificaciones.</summary>
 public sealed class PushOptions
 {
     public const string SECTION = "Push";
@@ -19,13 +19,4 @@ public sealed class PushOptions
 
     [Required]
     public string AndroidChannelId { get; set; } = "cober_general";
-
-    [Required, MinLength(1)]
-    public string[] AllowedUrlHosts { get; set; } = ["www.cober.com.ar", "cober.com.ar"];
-
-    [Required]
-    public string CanonicalUrlHost { get; set; } = "www.cober.com.ar";
-
-    [Required]
-    public string AllowedUrlPathPrefix { get; set; } = "/app";
 }

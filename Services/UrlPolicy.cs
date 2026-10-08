@@ -1,37 +1,36 @@
 using CoberPush.Api.Options;
-using Microsoft.Extensions.Options;
+using CoberPush.Api.Projects;
 
 namespace CoberPush.Api.Services;
 
-public sealed class UrlPolicy(IOptions<PushOptions> options) : IUrlPolicy
+public sealed class UrlPolicy : IUrlPolicy
 {
-    private readonly PushOptions _options = options.Value;
-
-    public bool TryNormalize(string? url, out string? normalized)
+    public bool TryNormalize(Project project, string? url, out string? normalized)
     {
         normalized = null;
+        var policy = project.UrlPolicy;
 
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
             || !uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
             || !string.IsNullOrEmpty(uri.UserInfo)
-            || !IsAllowedHost(uri.Host)
-            || !IsAllowedPath(uri.AbsolutePath))
+            || !IsAllowedHost(policy, uri.Host)
+            || !IsAllowedPath(policy, uri.AbsolutePath))
         {
             return false;
         }
 
-        normalized = new UriBuilder(uri) { Host = _options.CanonicalUrlHost, Port = -1 }.Uri.AbsoluteUri;
+        normalized = new UriBuilder(uri) { Host = policy.CanonicalHost, Port = -1 }.Uri.AbsoluteUri;
         return true;
     }
 
-    private bool IsAllowedHost(string host)
+    private static bool IsAllowedHost(UrlPolicyOptions policy, string host)
     {
-        return _options.AllowedUrlHosts.Any(h => h.Equals(host, StringComparison.OrdinalIgnoreCase));
+        return policy.AllowedHosts.Any(h => h.Equals(host, StringComparison.OrdinalIgnoreCase));
     }
 
-    private bool IsAllowedPath(string path)
+    private static bool IsAllowedPath(UrlPolicyOptions policy, string path)
     {
-        var prefix = _options.AllowedUrlPathPrefix.TrimEnd('/');
+        var prefix = policy.PathPrefix.TrimEnd('/');
         return path.Equals(prefix, StringComparison.OrdinalIgnoreCase)
             || path.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase);
     }

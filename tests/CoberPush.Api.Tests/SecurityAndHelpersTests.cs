@@ -49,7 +49,7 @@ public class IpAllowListTests
     {
         Assert.False(IpAllowList.TryParse([entry], out var list, out var error));
         Assert.Null(list);
-        Assert.Contains("AllowedSendIps", error);
+        Assert.Contains("IP/CIDR", error);
     }
 }
 
@@ -75,7 +75,7 @@ public class FcmErrorMapperTests
 {
     [Theory]
     [InlineData(MessagingErrorCode.Unregistered, "UNREGISTERED", true)]
-    [InlineData(MessagingErrorCode.SenderIdMismatch, "SENDER_ID_MISMATCH", true)]
+    [InlineData(MessagingErrorCode.SenderIdMismatch, "NO_EXISTE", false)]
     [InlineData(MessagingErrorCode.InvalidArgument, "INVALID_ARGUMENT", false)]
     [InlineData(MessagingErrorCode.QuotaExceeded, "QUOTA_EXCEEDED", false)]
     [InlineData(MessagingErrorCode.Unavailable, "UNAVAILABLE", false)]

@@ -494,3 +494,5 @@ appsettings.*.local.json
 *.pfx
 *.key
 *.pem
+appsettings.Development.json
+appsettings.Production.json

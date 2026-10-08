@@ -1,23 +1,28 @@
 using CoberPush.Api.Models;
+using CoberPush.Api.Projects;
 using CoberPush.Api.Services;
 using CoberPush.Api.Validation;
 
 namespace CoberPush.Api.Endpoints;
 
+/// <summary>Límite de tamaño de cuerpo propio de un endpoint (lo aplica un middleware, ver <c>UseCoberPush</c>).</summary>
+public sealed record BodyLimitMetadata(long MaxBytes);
+
 /// <summary>
-/// Endpoints para las apps instaladas (públicos: sin filtro de IP). Se protegen con la firma del recibo,
-/// rate limiting por IP y un límite de tamaño de cuerpo pequeño.
+/// Endpoints para las apps instaladas (públicos: sin filtro de IP). Se protegen con la firma del recibo
+/// (que incluye el proyecto), rate limiting por IP y un límite de tamaño de cuerpo pequeño.
 /// </summary>
 public static class ReceiptEndpoints
 {
-    public const string PATH = "/api/receipts";
     public const int MAX_BODY_BYTES = 8 * 1024;
 
     private const int MAX_CLOCK_SKEW_SECONDS = 300;
 
     public static IEndpointRouteBuilder MapReceiptEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup(PATH).RequireRateLimiting(RateLimitPolicies.RECEIPTS);
+        var group = app.MapGroup("/api/{projectId}/receipts")
+            .RequireRateLimiting(RateLimitPolicies.RECEIPTS)
+            .WithMetadata(new BodyLimitMetadata(MAX_BODY_BYTES));
 
         group.MapPost("/read", ReadAsync);
 
@@ -25,32 +30,39 @@ public static class ReceiptEndpoints
     }
 
     private static async Task<IResult> ReadAsync(
+        string projectId,
         ReadReceiptRequest request,
+        IProjectRegistry registry,
         ReadReceiptValidator validator,
         IReceiptSigner signer,
-        IPhpReadForwarder forwarder,
+        IReadForwarder forwarder,
         TimeProvider clock,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
+        // Proyecto inexistente o deshabilitado: 404 (el endpoint es público, no hay API key que justifique otro código).
+        if (!registry.TryGet(projectId, out var project) || !project.Enabled)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "No encontrado");
+        }
+
         var errors = validator.Validate(request);
         if (errors.Count > 0)
         {
             return Results.ValidationProblem(errors);
         }
 
-        var verification = signer.Verify(request.MessageId!, request.SentAt, request.Receipt!);
+        var verification = signer.Verify(project, request.MessageId!, request.SentAt, request.Receipt!);
         if (verification != ReceiptVerification.Valid)
         {
             return RejectReceipt(verification);
         }
 
-        var payload = BuildPayload(request, clock.GetUtcNow());
-        var outcome = await forwarder.ForwardReadAsync(payload, ct);
+        var outcome = await forwarder.ForwardReadAsync(project, BuildPayload(project, request, clock.GetUtcNow()), ct);
 
         loggerFactory.CreateLogger("Receipts").LogInformation(
-            "Lectura de {MessageId} (token {Token}): {Outcome}",
-            request.MessageId, TokenMasker.Mask(request.DeviceToken), outcome);
+            "Lectura de {MessageId} ({Project}, token {Token}): {Outcome}",
+            request.MessageId, project.Id, TokenMasker.Mask(request.DeviceToken), outcome);
 
         return ToResult(outcome);
     }
@@ -62,12 +74,13 @@ public static class ReceiptEndpoints
             : Results.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "Recibo inválido");
     }
 
-    private static PhpReadPayload BuildPayload(ReadReceiptRequest request, DateTimeOffset now)
+    private static ReadPayload BuildPayload(Project project, ReadReceiptRequest request, DateTimeOffset now)
     {
         var readAt = request.ReadAt is { } at && at <= now.AddSeconds(MAX_CLOCK_SKEW_SECONDS) ? at : now;
 
-        return new PhpReadPayload(
+        return new ReadPayload(
             "read",
+            project.Id,
             request.MessageId!,
             request.DeviceToken!,
             DateTimeOffset.FromUnixTimeSeconds(request.SentAt),

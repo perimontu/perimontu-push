@@ -5,6 +5,7 @@ namespace CoberPush.Api.Tests;
 public class HmacReceiptSignerTests
 {
     private readonly FakeClock _clock = new();
+    private readonly CoberPush.Api.Projects.Project _project = TestProjects.Create();
 
     private long Now => _clock.GetUtcNow().ToUnixTimeSeconds();
 
@@ -13,8 +14,8 @@ public class HmacReceiptSignerTests
     {
         var signer = TestServices.CreateSigner(_clock);
 
-        var a = signer.Sign("12345", Now);
-        var b = signer.Sign("12345", Now);
+        var a = signer.Sign(_project, "12345", Now);
+        var b = signer.Sign(_project, "12345", Now);
 
         Assert.Equal(a, b);
         Assert.Matches("^[A-Za-z0-9_-]+$", a);
@@ -24,19 +25,19 @@ public class HmacReceiptSignerTests
     public void Firma_valida_se_acepta()
     {
         var signer = TestServices.CreateSigner(_clock);
-        var receipt = signer.Sign("12345", Now);
+        var receipt = signer.Sign(_project, "12345", Now);
 
-        Assert.Equal(ReceiptVerification.Valid, signer.Verify("12345", Now, receipt));
+        Assert.Equal(ReceiptVerification.Valid, signer.Verify(_project, "12345", Now, receipt));
     }
 
     [Fact]
     public void Cambiar_messageId_o_fecha_invalida_la_firma()
     {
         var signer = TestServices.CreateSigner(_clock);
-        var receipt = signer.Sign("12345", Now);
+        var receipt = signer.Sign(_project, "12345", Now);
 
-        Assert.Equal(ReceiptVerification.Invalid, signer.Verify("99999", Now, receipt));
-        Assert.Equal(ReceiptVerification.Invalid, signer.Verify("12345", Now - 1, receipt));
+        Assert.Equal(ReceiptVerification.Invalid, signer.Verify(_project, "99999", Now, receipt));
+        Assert.Equal(ReceiptVerification.Invalid, signer.Verify(_project, "12345", Now - 1, receipt));
     }
 
     [Theory]
@@ -47,30 +48,54 @@ public class HmacReceiptSignerTests
     {
         var signer = TestServices.CreateSigner(_clock);
 
-        Assert.Equal(ReceiptVerification.Invalid, signer.Verify("12345", Now, receipt));
+        Assert.Equal(ReceiptVerification.Invalid, signer.Verify(_project, "12345", Now, receipt));
     }
 
     [Fact]
     public void Firma_con_otro_secreto_es_invalida()
     {
-        var other = TestServices.CreateSigner(_clock, "otro-secreto-0123456789-abcdefghijklmnop");
+        var other = TestProjects.Create(tweak: o => o.Receipts.HmacSecret = "otro-secreto-0123456789-abcdefghijklmnop");
         var signer = TestServices.CreateSigner(_clock);
 
-        Assert.Equal(ReceiptVerification.Invalid, signer.Verify("12345", Now, other.Sign("12345", Now)));
+        Assert.Equal(ReceiptVerification.Invalid, signer.Verify(_project, "12345", Now, signer.Sign(other, "12345", Now)));
+    }
+
+    [Fact]
+    public void Un_recibo_de_un_proyecto_no_vale_en_otro_aunque_compartan_secreto()
+    {
+        var other = TestProjects.Create("bristol");
+        var signer = TestServices.CreateSigner(_clock);
+
+        var receipt = signer.Sign(_project, "12345", Now);
+
+        Assert.Equal(ReceiptVerification.Invalid, signer.Verify(other, "12345", Now, receipt));
     }
 
     [Fact]
     public void Dentro_de_30_dias_es_valida_y_pasado_el_limite_expira()
     {
-        var signer = TestServices.CreateSigner(_clock, maxAgeDays: 30);
+        var signer = TestServices.CreateSigner(_clock);
         var sentAt = Now;
-        var receipt = signer.Sign("12345", sentAt);
+        var receipt = signer.Sign(_project, "12345", sentAt);
 
         _clock.Advance(TimeSpan.FromDays(29));
-        Assert.Equal(ReceiptVerification.Valid, signer.Verify("12345", sentAt, receipt));
+        Assert.Equal(ReceiptVerification.Valid, signer.Verify(_project, "12345", sentAt, receipt));
 
         _clock.Advance(TimeSpan.FromDays(2));
-        Assert.Equal(ReceiptVerification.Expired, signer.Verify("12345", sentAt, receipt));
+        Assert.Equal(ReceiptVerification.Expired, signer.Verify(_project, "12345", sentAt, receipt));
+    }
+
+    [Fact]
+    public void La_vigencia_sale_del_proyecto()
+    {
+        var shortLived = TestProjects.Create(tweak: o => o.Receipts.MaxAgeDays = 1);
+        var signer = TestServices.CreateSigner(_clock);
+        var sentAt = Now;
+        var receipt = signer.Sign(shortLived, "12345", sentAt);
+
+        _clock.Advance(TimeSpan.FromDays(2));
+
+        Assert.Equal(ReceiptVerification.Expired, signer.Verify(shortLived, "12345", sentAt, receipt));
     }
 
     [Fact]
@@ -79,7 +104,7 @@ public class HmacReceiptSignerTests
         var signer = TestServices.CreateSigner(_clock);
         var future = Now + 3600;
 
-        Assert.Equal(ReceiptVerification.Invalid, signer.Verify("12345", future, signer.Sign("12345", future)));
+        Assert.Equal(ReceiptVerification.Invalid, signer.Verify(_project, "12345", future, signer.Sign(_project, "12345", future)));
     }
 
     [Fact]
@@ -88,6 +113,6 @@ public class HmacReceiptSignerTests
         var signer = TestServices.CreateSigner(_clock);
         _clock.Advance(TimeSpan.FromDays(60));
 
-        Assert.Equal(ReceiptVerification.Invalid, signer.Verify("12345", Now - 90 * 86400, "firma-falsa"));
+        Assert.Equal(ReceiptVerification.Invalid, signer.Verify(_project, "12345", Now - 90 * 86400, "firma-falsa"));
     }
 }

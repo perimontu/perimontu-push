@@ -1,11 +1,16 @@
 @host = http://localhost:5117
-@apiKey = AKMPjzlk0C5NTfEg4DYUVQyauhZtG3orJbwsIvB72F9WOien
+@project = cober
+@apiKey = cpk_SX2kdP8e6C65xgn4YIMoBzJ7ti3mIY9mZQqnAZ5iJ7CJd0HJ
 
-### Salud
+### Salud del proceso (pública)
 GET {{host}}/health
 
+### Salud del proyecto: comprueba Firebase (requiere key)
+GET {{host}}/api/{{project}}/health
+X-Api-Key: {{apiKey}}
+
 ### Envío a tokens (dryRun: valida y no entrega)
-POST {{host}}/api/push/send
+POST {{host}}/api/{{project}}/push/send
 Content-Type: application/json
 X-Api-Key: {{apiKey}}
 
@@ -20,14 +25,14 @@ X-Api-Key: {{apiKey}}
 }
 
 ### Envío a un topic
-POST {{host}}/api/push/topic/novedades
+POST {{host}}/api/{{project}}/push/topic/novedades
 Content-Type: application/json
 X-Api-Key: {{apiKey}}
 
 { "title": "Novedades", "body": "Hay novedades en Cober", "dryRun": true }
 
 ### Lectura (la app lo llama con los valores que recibió en data)
-POST {{host}}/api/receipts/read
+POST {{host}}/api/{{project}}/receipts/read
 Content-Type: application/json
 
 {

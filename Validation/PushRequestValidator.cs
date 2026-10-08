@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using CoberPush.Api.Models;
 using CoberPush.Api.Options;
+using CoberPush.Api.Projects;
 using CoberPush.Api.Services;
 using Microsoft.Extensions.Options;
 
@@ -37,13 +38,13 @@ public sealed partial class PushRequestValidator(
     [GeneratedRegex(@"^\S{1,4096}$")]
     private static partial Regex TokenRegex();
 
-    public PushContentBuildResult BuildContent(PushContentRequest request)
+    public PushContentBuildResult BuildContent(Project project, PushContentRequest request)
     {
         var errors = new Dictionary<string, string[]>();
 
         var title = ValidateText(request.Title, "title", MAX_TITLE_LENGTH, errors);
         var body = ValidateText(request.Body, "body", MAX_BODY_LENGTH, errors);
-        var url = ValidateUrl(request.Url, errors);
+        var url = ValidateUrl(project, request.Url, errors);
         var imageUrl = ValidateImageUrl(request.ImageUrl, errors);
         var messageId = ValidateMessageId(request.MessageId, errors);
         var data = ValidateData(request.Data, errors);
@@ -56,7 +57,7 @@ public sealed partial class PushRequestValidator(
 
         var sentAt = clock.GetUtcNow().ToUnixTimeSeconds();
         var content = new PushContent(
-            messageId, title!, body!, url, imageUrl, sentAt, signer.Sign(messageId, sentAt), data, ttl);
+            messageId, title!, body!, url, imageUrl, sentAt, signer.Sign(project, messageId, sentAt), data, ttl);
 
         return CheckPayloadSize(content, errors);
     }
@@ -112,19 +113,20 @@ public sealed partial class PushRequestValidator(
         return text;
     }
 
-    private string? ValidateUrl(string? url, Dictionary<string, string[]> errors)
+    private string? ValidateUrl(Project project, string? url, Dictionary<string, string[]> errors)
     {
         if (string.IsNullOrWhiteSpace(url))
         {
             return null;
         }
 
-        if (url.Length <= MAX_URL_LENGTH && urlPolicy.TryNormalize(url, out var normalized))
+        if (url.Length <= MAX_URL_LENGTH && urlPolicy.TryNormalize(project, url, out var normalized))
         {
             return normalized;
         }
 
-        errors["url"] = [$"La URL debe ser https://{_options.CanonicalUrlHost}{_options.AllowedUrlPathPrefix}..."];
+        var policy = project.UrlPolicy;
+        errors["url"] = [$"La URL debe ser https://{policy.CanonicalHost}{policy.PathPrefix}..."];
         return null;
     }
 

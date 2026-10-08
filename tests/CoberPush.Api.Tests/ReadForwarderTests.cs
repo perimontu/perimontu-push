@@ -7,22 +7,31 @@ using Microsoft.Extensions.Options;
 
 namespace CoberPush.Api.Tests;
 
-public class PhpReadForwarderTests
+public class ReadForwarderTests
 {
-    private static readonly PhpReadPayload PAYLOAD = new(
-        "read", "12345", "token-largo-ab12", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1));
+    private static readonly ReadPayload PAYLOAD = new(
+        "read", "cober", "12345", "token-largo-ab12", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch.AddHours(1));
 
-    private static PhpReadForwarder Create(StubHandler handler, int retryCount = 2, string readPath = "/read")
+    private static Sut Create(
+        StubHandler handler, int retryCount = 2, string readPath = "/read", int timeoutSeconds = 10, string bearer = "secreto-de-prueba")
     {
-        var options = Opt.Of(new PhpApiOptions
+        var project = TestProjects.Create(tweak: o => o.UrlApi = new UrlApiOptions
         {
-            BaseUrl = "https://php.test/api/push/",
+            BaseUrl = "https://backend.test/api/push/",
             ReadPath = readPath,
-            BearerToken = "secreto",
-            RetryCount = retryCount
+            BearerToken = bearer,
+            RetryCount = retryCount,
+            TimeoutSeconds = timeoutSeconds
         });
 
-        return new PhpReadForwarder(new HttpClient(handler), options, NullLogger<PhpReadForwarder>.Instance);
+        return new Sut(new ReadForwarder(new HttpClient(handler), NullLogger<ReadForwarder>.Instance), project);
+    }
+
+    /// <summary>Junta el forwarder con el proyecto cuya configuración usa, para que las pruebas lean igual que antes.</summary>
+    private sealed class Sut(ReadForwarder forwarder, CoberPush.Api.Projects.Project project)
+    {
+        public Task<ForwardOutcome> ForwardReadAsync(ReadPayload payload, CancellationToken ct = default)
+            => forwarder.ForwardReadAsync(project, payload, ct);
     }
 
     [Fact]
@@ -34,21 +43,42 @@ public class PhpReadForwarderTests
 
         Assert.Equal(ForwardOutcome.Accepted, outcome);
         Assert.Equal(1, handler.Calls);
-        Assert.Equal("https://php.test/api/push/leido", handler.LastUri?.ToString());
+        Assert.Equal("https://backend.test/api/push/leido", handler.LastUri?.ToString());
     }
 
     [Fact]
-    public async Task El_cuerpo_enviado_a_php_tiene_el_contrato_documentado()
+    public async Task El_cuerpo_enviado_al_backend_tiene_el_contrato_documentado()
     {
         var handler = new StubHandler(HttpStatusCode.OK);
 
         await Create(handler).ForwardReadAsync(PAYLOAD);
 
         Assert.Contains("\"event\":\"read\"", handler.LastBody);
+        Assert.Contains("\"projectId\":\"cober\"", handler.LastBody);
         Assert.Contains("\"messageId\":\"12345\"", handler.LastBody);
         Assert.Contains("\"deviceToken\":\"token-largo-ab12\"", handler.LastBody);
         Assert.Contains("\"sentAt\":", handler.LastBody);
         Assert.Contains("\"readAt\":", handler.LastBody);
+    }
+
+    [Fact]
+    public async Task Usa_el_bearer_del_proyecto()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK);
+
+        await Create(handler, bearer: "bearer-del-proyecto-1").ForwardReadAsync(PAYLOAD);
+
+        Assert.Equal("Bearer bearer-del-proyecto-1", handler.LastAuthorization);
+    }
+
+    [Fact]
+    public async Task El_timeout_del_proyecto_corta_una_respuesta_lenta()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK) { Delay = TimeSpan.FromSeconds(30) };
+
+        var outcome = await Create(handler, retryCount: 0, timeoutSeconds: 1).ForwardReadAsync(PAYLOAD);
+
+        Assert.Equal(ForwardOutcome.Unavailable, outcome);
     }
 
     [Fact]
@@ -140,6 +170,8 @@ public class PhpReadForwarderTests
         public int Calls { get; private set; }
         public Uri? LastUri { get; private set; }
         public string LastBody { get; private set; } = string.Empty;
+        public string? LastAuthorization { get; private set; }
+        public TimeSpan Delay { get; init; }
         public Exception? Throw { get; init; }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -147,7 +179,13 @@ public class PhpReadForwarderTests
             ct.ThrowIfCancellationRequested();
             Calls++;
             LastUri = request.RequestUri;
+            LastAuthorization = request.Headers.Authorization?.ToString();
             LastBody = request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync(ct);
+
+            if (Delay > TimeSpan.Zero)
+            {
+                await Task.Delay(Delay, ct);
+            }
 
             if (Throw is not null)
             {

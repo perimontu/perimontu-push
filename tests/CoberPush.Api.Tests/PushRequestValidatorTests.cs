@@ -9,6 +9,7 @@ public class PushRequestValidatorTests
 {
     private readonly FakeClock _clock = new();
     private readonly PushRequestValidator _validator;
+    private readonly CoberPush.Api.Projects.Project _project = TestProjects.Create();
 
     public PushRequestValidatorTests()
     {
@@ -26,7 +27,7 @@ public class PushRequestValidatorTests
     [Fact]
     public void Pedido_valido_genera_contenido_firmado_con_defaults()
     {
-        var result = _validator.BuildContent(Valid());
+        var result = _validator.BuildContent(_project, Valid());
 
         Assert.True(result.IsValid);
         var content = result.Content!;
@@ -36,13 +37,13 @@ public class PushRequestValidatorTests
         Assert.Equal(32, content.MessageId.Length); // GUID "N"
         Assert.Equal(
             ReceiptVerification.Valid,
-            TestServices.CreateSigner(_clock).Verify(content.MessageId, content.SentAt, content.Receipt));
+            TestServices.CreateSigner(_clock).Verify(_project, content.MessageId, content.SentAt, content.Receipt));
     }
 
     [Fact]
     public void Respeta_el_messageId_del_llamador()
     {
-        var result = _validator.BuildContent(Valid() with { MessageId = "pedido:12345" });
+        var result = _validator.BuildContent(_project, Valid() with { MessageId = "pedido:12345" });
 
         Assert.Equal("pedido:12345", result.Content!.MessageId);
     }
@@ -52,7 +53,7 @@ public class PushRequestValidatorTests
     [InlineData("con/barra")]
     public void MessageId_invalido_se_rechaza(string id)
     {
-        var result = _validator.BuildContent(Valid() with { MessageId = id });
+        var result = _validator.BuildContent(_project, Valid() with { MessageId = id });
 
         Assert.Contains("messageId", result.Errors.Keys);
     }
@@ -60,7 +61,7 @@ public class PushRequestValidatorTests
     [Fact]
     public void MessageId_de_mas_de_64_caracteres_se_rechaza()
     {
-        var result = _validator.BuildContent(Valid() with { MessageId = new string('a', 65) });
+        var result = _validator.BuildContent(_project, Valid() with { MessageId = new string('a', 65) });
 
         Assert.Contains("messageId", result.Errors.Keys);
     }
@@ -68,7 +69,7 @@ public class PushRequestValidatorTests
     [Fact]
     public void Titulo_y_cuerpo_son_obligatorios()
     {
-        var result = _validator.BuildContent(Valid() with { Title = " ", Body = null });
+        var result = _validator.BuildContent(_project, Valid() with { Title = " ", Body = null });
 
         Assert.Contains("title", result.Errors.Keys);
         Assert.Contains("body", result.Errors.Keys);
@@ -78,7 +79,7 @@ public class PushRequestValidatorTests
     [Fact]
     public void Url_fuera_de_la_politica_se_rechaza()
     {
-        var result = _validator.BuildContent(Valid() with { Url = "https://evil.com/app" });
+        var result = _validator.BuildContent(_project, Valid() with { Url = "https://evil.com/app" });
 
         Assert.Contains("url", result.Errors.Keys);
     }
@@ -86,7 +87,7 @@ public class PushRequestValidatorTests
     [Fact]
     public void Sin_url_es_valido()
     {
-        var result = _validator.BuildContent(Valid() with { Url = null });
+        var result = _validator.BuildContent(_project, Valid() with { Url = null });
 
         Assert.True(result.IsValid);
         Assert.Null(result.Content!.Url);
@@ -95,8 +96,8 @@ public class PushRequestValidatorTests
     [Fact]
     public void Imagen_debe_ser_https()
     {
-        Assert.Contains("imageUrl", _validator.BuildContent(Valid() with { ImageUrl = "http://x.com/a.png" }).Errors.Keys);
-        Assert.True(_validator.BuildContent(Valid() with { ImageUrl = "https://x.com/a.png" }).IsValid);
+        Assert.Contains("imageUrl", _validator.BuildContent(_project, Valid() with { ImageUrl = "http://x.com/a.png" }).Errors.Keys);
+        Assert.True(_validator.BuildContent(_project, Valid() with { ImageUrl = "https://x.com/a.png" }).IsValid);
     }
 
     [Theory]
@@ -111,7 +112,7 @@ public class PushRequestValidatorTests
     [InlineData("con espacio")]
     public void Claves_de_data_reservadas_o_invalidas_se_rechazan(string key)
     {
-        var result = _validator.BuildContent(Valid() with { Data = new() { [key] = "x" } });
+        var result = _validator.BuildContent(_project, Valid() with { Data = new() { [key] = "x" } });
 
         Assert.Contains("data", result.Errors.Keys);
     }
@@ -120,10 +121,10 @@ public class PushRequestValidatorTests
     public void Data_con_demasiadas_entradas_o_valores_largos_se_rechaza()
     {
         var many = Enumerable.Range(0, 21).ToDictionary(i => $"k{i}", _ => "v");
-        Assert.Contains("data", _validator.BuildContent(Valid() with { Data = many }).Errors.Keys);
+        Assert.Contains("data", _validator.BuildContent(_project, Valid() with { Data = many }).Errors.Keys);
 
         var longValue = new Dictionary<string, string> { ["k"] = new string('x', 501) };
-        Assert.Contains("data", _validator.BuildContent(Valid() with { Data = longValue }).Errors.Keys);
+        Assert.Contains("data", _validator.BuildContent(_project, Valid() with { Data = longValue }).Errors.Keys);
     }
 
     [Theory]
@@ -131,13 +132,13 @@ public class PushRequestValidatorTests
     [InlineData(2_419_201)]
     public void Ttl_fuera_de_rango_se_rechaza(int ttl)
     {
-        Assert.Contains("ttlSeconds", _validator.BuildContent(Valid() with { TtlSeconds = ttl }).Errors.Keys);
+        Assert.Contains("ttlSeconds", _validator.BuildContent(_project, Valid() with { TtlSeconds = ttl }).Errors.Keys);
     }
 
     [Fact]
     public void Ttl_cero_es_valido()
     {
-        Assert.Equal(0, _validator.BuildContent(Valid() with { TtlSeconds = 0 }).Content!.TtlSeconds);
+        Assert.Equal(0, _validator.BuildContent(_project, Valid() with { TtlSeconds = 0 }).Content!.TtlSeconds);
     }
 
     [Fact]
@@ -145,7 +146,7 @@ public class PushRequestValidatorTests
     {
         var big = Enumerable.Range(0, 10).ToDictionary(i => $"k{i}", _ => new string('x', 480));
 
-        var result = _validator.BuildContent(Valid() with { Data = big });
+        var result = _validator.BuildContent(_project, Valid() with { Data = big });
 
         Assert.Contains("payload", result.Errors.Keys);
     }

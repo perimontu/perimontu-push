@@ -2,6 +2,7 @@ namespace CoberPush.Api.Models;
 
 /// <summary>Resultado de un envío. <c>Success</c> significa "FCM aceptó el mensaje", no que llegó al dispositivo.</summary>
 public sealed record PushSendResult(
+    string ProjectId,
     string MessageId,
     int SuccessCount,
     int FailureCount,

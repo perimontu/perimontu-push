@@ -15,7 +15,8 @@ public sealed class IpAllowList
     public static IpAllowList Empty { get; } = new([]);
 
     /// <summary>Parsea entradas como <c>203.0.113.10</c> o <c>203.0.113.0/24</c> (IPv4 o IPv6).</summary>
-    public static bool TryParse(IEnumerable<string> entries, out IpAllowList? list, out string? error)
+    public static bool TryParse(
+        IEnumerable<string> entries, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out IpAllowList? list, out string? error)
     {
         var networks = new List<IPNetwork>();
         list = null;
@@ -25,7 +26,7 @@ public sealed class IpAllowList
         {
             if (!TryParseEntry(entry?.Trim(), out var network))
             {
-                error = $"IP/CIDR inválido en AllowedSendIps: '{entry}'.";
+                error = $"IP/CIDR inválido: '{entry}'.";
                 return false;
             }
 

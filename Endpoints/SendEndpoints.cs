@@ -5,15 +5,15 @@ using CoberPush.Api.Validation;
 
 namespace CoberPush.Api.Endpoints;
 
-/// <summary>Endpoints de envío: protegidos por IP permitida + API key + rate limiting.</summary>
+/// <summary>Endpoints de envío de un proyecto: API key del proyecto + IP permitida + rate limiting de la key.</summary>
 public static class SendEndpoints
 {
     public static IEndpointRouteBuilder MapSendEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/push")
+        var group = app.MapGroup("/api/{projectId}/push")
             .RequireRateLimiting(RateLimitPolicies.SEND)
-            .AddEndpointFilter<IpAllowListEndpointFilter>()
-            .AddEndpointFilter<ApiKeyEndpointFilter>();
+            .AddEndpointFilter<ProjectApiKeyEndpointFilter>()
+            .AddEndpointFilter<KeyIpEndpointFilter>();
 
         group.MapPost("/send", SendToTokensAsync);
         group.MapPost("/topic/{topic}", SendToTopicAsync);
@@ -22,15 +22,17 @@ public static class SendEndpoints
     }
 
     private static async Task<IResult> SendToTokensAsync(
+        HttpContext http,
         SendPushRequest request,
         PushRequestValidator validator,
         IPushSender sender,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
+        var context = http.GetProjectContext();
         var tokens = request.Tokens?.Distinct().ToList();
         var errors = validator.ValidateTokens(tokens);
-        var build = validator.BuildContent(request);
+        var build = validator.BuildContent(context.Project, request);
 
         foreach (var (field, messages) in build.Errors)
         {
@@ -42,24 +44,26 @@ public static class SendEndpoints
             return Results.ValidationProblem(errors);
         }
 
-        var result = await sender.SendToTokensAsync(build.Content!, tokens!, request.DryRun, ct);
+        var result = await sender.SendToTokensAsync(context.Project, build.Content!, tokens!, request.DryRun, ct);
 
         loggerFactory.CreateLogger("Push").LogInformation(
-            "Envío {MessageId}: {Ok} ok, {Failed} con error (dryRun={DryRun})",
-            result.MessageId, result.SuccessCount, result.FailureCount, request.DryRun);
+            "Envío {MessageId} ({Project}/{Consumer}): {Ok} ok, {Failed} con error (dryRun={DryRun})",
+            result.MessageId, context.Project.Id, context.Key.Name, result.SuccessCount, result.FailureCount, request.DryRun);
 
         return Results.Ok(result);
     }
 
     private static async Task<IResult> SendToTopicAsync(
+        HttpContext http,
         string topic,
         PushContentRequest request,
         PushRequestValidator validator,
         IPushSender sender,
         CancellationToken ct)
     {
+        var context = http.GetProjectContext();
         var errors = validator.ValidateTopic(topic);
-        var build = validator.BuildContent(request);
+        var build = validator.BuildContent(context.Project, request);
 
         foreach (var (field, messages) in build.Errors)
         {
@@ -71,6 +75,6 @@ public static class SendEndpoints
             return Results.ValidationProblem(errors);
         }
 
-        return Results.Ok(await sender.SendToTopicAsync(build.Content!, topic, request.DryRun, ct));
+        return Results.Ok(await sender.SendToTopicAsync(context.Project, build.Content!, topic, request.DryRun, ct));
     }
 }

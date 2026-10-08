@@ -1,7 +1,7 @@
 using System.Net;
-using System.Threading.RateLimiting;
 using CoberPush.Api.Endpoints;
 using CoberPush.Api.Options;
+using CoberPush.Api.Projects;
 using CoberPush.Api.Security;
 using CoberPush.Api.Services;
 using CoberPush.Api.Validation;
@@ -22,14 +22,10 @@ public static class ServiceCollectionExtensions
     {
         AddValidatedOption<ApiOptions>(services, config, ApiOptions.SECTION);
         AddValidatedOption<PushOptions>(services, config, PushOptions.SECTION);
-        AddValidatedOption<ReceiptOptions>(services, config, ReceiptOptions.SECTION);
-        AddValidatedOption<PhpApiOptions>(services, config, PhpApiOptions.SECTION);
-        AddValidatedOption<FirebaseOptions>(services, config, FirebaseOptions.SECTION);
-        services.AddOptions<RateLimitOptions>().Bind(config.GetSection(RateLimitOptions.SECTION)).ValidateDataAnnotations();
-        services.AddSingleton<IValidateOptions<ApiOptions>, ApiOptionsValidator>();
+        AddProjectsOption(services, config);
 
         AddServices(services);
-        AddPhpClient(services);
+        AddReadForwarderClient(services);
         AddRateLimiting(services);
         AddInfrastructureOptions(services);
 
@@ -42,56 +38,49 @@ public static class ServiceCollectionExtensions
         services.AddOptions<T>().Bind(config.GetSection(section)).ValidateDataAnnotations().ValidateOnStart();
     }
 
+    /// <summary>Enlaza el array <c>Projects</c> y lo valida por completo al arrancar (ver <see cref="ProjectsOptionsValidator"/>).</summary>
+    private static void AddProjectsOption(IServiceCollection services, IConfiguration config)
+    {
+        services.AddOptions<ProjectsOptions>()
+            .Configure(options => config.GetSection(ProjectsOptions.SECTION).Bind(options.Items))
+            .ValidateOnStart();
+
+        services.AddSingleton<IValidateOptions<ProjectsOptions>, ProjectsOptionsValidator>();
+        services.AddSingleton<IValidateOptions<ApiOptions>, ApiOptionsValidator>();
+    }
+
     private static void AddServices(IServiceCollection services)
     {
         services.AddSingleton(TimeProvider.System);
-        services.AddSingleton(sp =>
-        {
-            IpAllowList.TryParse(sp.GetRequiredService<IOptions<ApiOptions>>().Value.AllowedSendIps, out var list, out _);
-            return list ?? IpAllowList.Empty;
-        });
+        services.AddSingleton<IProjectRegistry, ProjectRegistry>();
+        services.AddSingleton<ApiKeyAuthenticator>();
 
         services.AddSingleton<IUrlPolicy, UrlPolicy>();
         services.AddSingleton<IReceiptSigner, HmacReceiptSigner>();
         services.AddSingleton<PushMessageFactory>();
+        services.AddSingleton<IFirebaseMessagingProvider, FirebaseMessagingProvider>();
         services.AddSingleton<IPushSender, FirebasePushSender>();
+        services.AddSingleton<IProjectHealthChecker, ProjectHealthChecker>();
         services.AddSingleton<PushRequestValidator>();
         services.AddSingleton<ReadReceiptValidator>();
     }
 
-    private static void AddPhpClient(IServiceCollection services)
+    /// <summary>El timeout lo fija cada proyecto (<c>UrlApi.TimeoutSeconds</c>) dentro del forwarder.</summary>
+    private static void AddReadForwarderClient(IServiceCollection services)
     {
-        services.AddHttpClient<IPhpReadForwarder, PhpReadForwarder>((sp, client) =>
-        {
-            var options = sp.GetRequiredService<IOptions<PhpApiOptions>>().Value;
-            client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
-            client.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", options.BearerToken);
-        });
+        services.AddHttpClient<IReadForwarder, ReadForwarder>(client => client.Timeout = Timeout.InfiniteTimeSpan);
     }
 
     private static void AddRateLimiting(IServiceCollection services)
     {
         services.AddRateLimiter(_ => { });
 
-        services.AddOptions<RateLimiterOptions>().Configure<IOptions<RateLimitOptions>>((limiter, rate) =>
+        services.AddOptions<RateLimiterOptions>().Configure<IOptions<ApiOptions>>((limiter, api) =>
         {
             limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-            limiter.AddPolicy(RateLimitPolicies.SEND, ctx => ByIp(ctx, rate.Value.Send));
-            limiter.AddPolicy(RateLimitPolicies.RECEIPTS, ctx => ByIp(ctx, rate.Value.Receipts));
-        });
-    }
-
-    private static RateLimitPartition<string> ByIp(HttpContext context, RateLimitPolicyOptions policy)
-    {
-        var key = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-
-        return RateLimitPartition.GetFixedWindowLimiter(key, _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = policy.PermitLimit,
-            Window = TimeSpan.FromSeconds(policy.WindowSeconds),
-            QueueLimit = 0,
-            AutoReplenishment = true
+            limiter.AddPolicy(RateLimitPolicies.SEND, ctx => RateLimitPartitioner.ByKey(ctx, RateLimitPolicies.SEND, api.Value));
+            limiter.AddPolicy(RateLimitPolicies.HEALTH, ctx => RateLimitPartitioner.ByKey(ctx, RateLimitPolicies.HEALTH, api.Value));
+            limiter.AddPolicy(RateLimitPolicies.RECEIPTS, ctx => RateLimitPartitioner.ByProjectIp(ctx, api.Value));
         });
     }
 

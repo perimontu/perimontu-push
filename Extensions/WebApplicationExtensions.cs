@@ -18,9 +18,7 @@ public static class WebApplicationExtensions
             app.UseHsts();
         }
 
-        app.UseWhen(
-            ctx => ctx.Request.Path.StartsWithSegments(ReceiptEndpoints.PATH),
-            branch => branch.Use(LimitReceiptBody));
+        app.Use(ApplyEndpointBodyLimit);
 
         app.UseRateLimiter();
 
@@ -31,14 +29,15 @@ public static class WebApplicationExtensions
         return app;
     }
 
-    /// <summary>El endpoint público de lecturas acepta cuerpos muy pequeños.</summary>
-    private static Task LimitReceiptBody(HttpContext context, RequestDelegate next)
+    /// <summary>Los endpoints que declaran <see cref="BodyLimitMetadata"/> (p. ej. el público de lecturas) aceptan cuerpos más pequeños.</summary>
+    private static Task ApplyEndpointBodyLimit(HttpContext context, RequestDelegate next)
     {
+        var limit = context.GetEndpoint()?.Metadata.GetMetadata<BodyLimitMetadata>();
         var feature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
 
-        if (feature is { IsReadOnly: false })
+        if (limit is not null && feature is { IsReadOnly: false })
         {
-            feature.MaxRequestBodySize = ReceiptEndpoints.MAX_BODY_BYTES;
+            feature.MaxRequestBodySize = limit.MaxBytes;
         }
 
         return next(context);
@@ -46,7 +45,7 @@ public static class WebApplicationExtensions
 
     /// <summary>
     /// Respuesta genérica: nunca se exponen detalles de la excepción. Única excepción: Firebase sin credencial,
-    /// que se informa como 503 accionable (solo lo ven quienes pasaron IP y API key).
+    /// que se informa como 503 accionable (el detalle, con el proyecto, queda en el log).
     /// </summary>
     private static Task WriteServerError(HttpContext context)
     {
@@ -56,7 +55,7 @@ public static class WebApplicationExtensions
         {
             return Results.Problem(
                 statusCode: StatusCodes.Status503ServiceUnavailable,
-                title: "Firebase no disponible: revise la credencial (GOOGLE_APPLICATION_CREDENTIALS)")
+                title: "Firebase no disponible para este proyecto: revise la credencial")
                 .ExecuteAsync(context);
         }
 

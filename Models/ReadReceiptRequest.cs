@@ -16,15 +16,16 @@ public sealed record ReadReceiptRequest
     public DateTimeOffset? ReadAt { get; init; }
 }
 
-/// <summary>Cuerpo que se reenvía a la API PHP.</summary>
-public sealed record PhpReadPayload(
+/// <summary>Cuerpo que se reenvía a la API del proyecto (<c>UrlApi</c>).</summary>
+public sealed record ReadPayload(
     string Event,
+    string ProjectId,
     string MessageId,
     string DeviceToken,
     DateTimeOffset SentAt,
     DateTimeOffset ReadAt);
 
-/// <summary>Resultado de reenviar el reporte a PHP.</summary>
+/// <summary>Resultado de reenviar el reporte al backend del proyecto.</summary>
 public enum ForwardOutcome
 {
     Accepted,

@@ -1,5 +1,6 @@
 using System.Net;
 using CoberPush.Api.Models;
+using CoberPush.Api.Projects;
 using CoberPush.Api.Services;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -15,13 +16,19 @@ public sealed class FakePushSender : IPushSender
     public const string UNREGISTERED_TOKEN = "bad-token-0001";
 
     public List<PushContent> Sent { get; } = [];
+    public List<string> SentProjects { get; } = [];
     public bool? LastDryRun { get; private set; }
     public string? LastTopic { get; private set; }
 
+    public bool ConnectivityResult { get; set; } = true;
+    public Exception? ConnectivityFailure { get; set; }
+    public int ConnectivityCalls { get; private set; }
+
     public Task<PushSendResult> SendToTokensAsync(
-        PushContent content, IReadOnlyList<string> tokens, bool dryRun, CancellationToken ct = default)
+        Project project, PushContent content, IReadOnlyList<string> tokens, bool dryRun, CancellationToken ct = default)
     {
         Sent.Add(content);
+        SentProjects.Add(project.Id);
         LastDryRun = dryRun;
 
         var results = tokens
@@ -31,66 +38,99 @@ public sealed class FakePushSender : IPushSender
             .ToList();
 
         var ok = results.Count(r => r.Success);
-        return Task.FromResult(new PushSendResult(content.MessageId, ok, results.Count - ok, results));
+        return Task.FromResult(new PushSendResult(project.Id, content.MessageId, ok, results.Count - ok, results));
     }
 
     public Task<PushSendResult> SendToTopicAsync(
-        PushContent content, string topic, bool dryRun, CancellationToken ct = default)
+        Project project, PushContent content, string topic, bool dryRun, CancellationToken ct = default)
     {
         Sent.Add(content);
+        SentProjects.Add(project.Id);
         LastTopic = topic;
         LastDryRun = dryRun;
 
         var result = new PushTargetResult($"topic:{topic}", true, "projects/p/messages/1", null, false);
-        return Task.FromResult(new PushSendResult(content.MessageId, 1, 0, [result]));
+        return Task.FromResult(new PushSendResult(project.Id, content.MessageId, 1, 0, [result]));
+    }
+
+    public Task<bool> CheckConnectivityAsync(Project project, CancellationToken ct = default)
+    {
+        ConnectivityCalls++;
+        return ConnectivityFailure is null ? Task.FromResult(ConnectivityResult) : throw ConnectivityFailure;
     }
 }
 
-public sealed class FakePhpReadForwarder : IPhpReadForwarder
+public sealed class FakeReadForwarder : IReadForwarder
 {
     public ForwardOutcome Outcome { get; set; } = ForwardOutcome.Accepted;
-    public List<PhpReadPayload> Received { get; } = [];
+    public List<ReadPayload> Received { get; } = [];
+    public List<string> ReceivedProjects { get; } = [];
 
-    public Task<ForwardOutcome> ForwardReadAsync(PhpReadPayload payload, CancellationToken ct = default)
+    public Task<ForwardOutcome> ForwardReadAsync(Project project, ReadPayload payload, CancellationToken ct = default)
     {
         Received.Add(payload);
+        ReceivedProjects.Add(project.Id);
         return Task.FromResult(Outcome);
     }
 }
 
 /// <summary>
-/// API completa en memoria con Firebase y PHP simulados. La IP del cliente se controla con la cabecera
+/// API completa en memoria con Firebase y backend de destino simulados y dos proyectos (<c>cober</c> y <c>otro</c>) más
+/// uno deshabilitado (<c>pausado</c>). La IP del cliente se controla con la cabecera
 /// <see cref="REMOTE_IP_HEADER"/> (TestServer no tiene IP remota por sí mismo).
 /// </summary>
 public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     public const string REMOTE_IP_HEADER = "X-Test-Remote-Ip";
+    public const string PROJECT = "cober";
+    public const string OTHER_PROJECT = "otro";
+    public const string DISABLED_PROJECT = "pausado";
+
     public const string API_KEY = "test-api-key-0123456789-abcdefghijklmnop";
+    public const string RESTRICTED_KEY = "test-restricted-key-0123456789-abcdefghijk";
+    public const string DISABLED_KEY = "test-disabled-key-0123456789-abcdefghijklm";
+    public const string EXPIRED_KEY = "test-expired-key-0123456789-abcdefghijklmn";
+    public const string LIMITED_KEY = "test-limited-key-0123456789-abcdefghijklmn";
+    public const string OTHER_KEY = "test-otro-key-0123456789-abcdefghijklmnopq";
+    public const string DISABLED_PROJECT_KEY = "test-pausado-key-0123456789-abcdefghijklm";
+    public const string OTHER_HMAC_SECRET = "otro-hmac-secret-0123456789-abcdefghijkl";
+
     public const string ALLOWED_IP = "203.0.113.10";
+    public const string RESTRICTED_IP = "192.0.2.5";
 
     private readonly Dictionary<string, string?> _settings;
     private readonly Action<IServiceCollection>? _configureServices;
 
-    public ApiFactory(
-        Dictionary<string, string?>? overrides = null,
-        bool withApiKey = true,
-        Action<IServiceCollection>? configureServices = null)
+    public ApiFactory(Dictionary<string, string?>? overrides = null, Action<IServiceCollection>? configureServices = null)
     {
         _configureServices = configureServices;
-        _settings = new Dictionary<string, string?>
-        {
-            ["Api:AllowedSendIps:0"] = ALLOWED_IP,
-            ["Api:AllowedSendIps:1"] = "198.51.100.0/24",
-            ["Api:KnownProxies:0"] = "127.0.0.1",
-            ["Receipts:HmacSecret"] = TestServices.HMAC_SECRET,
-            ["PhpApi:BearerToken"] = "bearer-de-prueba",
-            ["PhpApi:BaseUrl"] = "https://php.test/api/push"
-        };
+        _settings = new Dictionary<string, string?> { ["Api:KnownProxies:0"] = "127.0.0.1" };
 
-        if (withApiKey)
-        {
-            _settings["Api:Key"] = API_KEY;
-        }
+        AddProject(0, PROJECT, "cober-test", TestProjects.HMAC_SECRET, "https://backend.test/api/push", ALLOWED_IP, "198.51.100.0/24");
+        Set("Projects:0:ApiKeys:0:Name", "backend");
+        Set("Projects:0:ApiKeys:0:Key", API_KEY);
+        Set("Projects:0:ApiKeys:1:Name", "restringida");
+        Set("Projects:0:ApiKeys:1:Key", RESTRICTED_KEY);
+        Set("Projects:0:ApiKeys:1:AllowedIps:0", RESTRICTED_IP);
+        Set("Projects:0:ApiKeys:2:Name", "deshabilitada");
+        Set("Projects:0:ApiKeys:2:Key", DISABLED_KEY);
+        Set("Projects:0:ApiKeys:2:Enabled", "false");
+        Set("Projects:0:ApiKeys:3:Name", "vencida");
+        Set("Projects:0:ApiKeys:3:Key", EXPIRED_KEY);
+        Set("Projects:0:ApiKeys:3:ExpiresAt", "2026-10-01T00:00:00-03:00");
+        Set("Projects:0:ApiKeys:4:Name", "limitada");
+        Set("Projects:0:ApiKeys:4:Key", LIMITED_KEY);
+        Set("Projects:0:ApiKeys:4:RateLimit:PermitLimit", "2");
+        Set("Projects:0:ApiKeys:4:RateLimit:WindowSeconds", "60");
+
+        AddProject(1, OTHER_PROJECT, "otro-test", OTHER_HMAC_SECRET, "https://otro.test/api", ALLOWED_IP);
+        Set("Projects:1:ApiKeys:0:Name", "backend-otro");
+        Set("Projects:1:ApiKeys:0:Key", OTHER_KEY);
+
+        AddProject(2, DISABLED_PROJECT, "pausado-test", TestProjects.HMAC_SECRET, "https://pausado.test/api", ALLOWED_IP);
+        Set("Projects:2:Enabled", "false");
+        Set("Projects:2:ApiKeys:0:Name", "backend-pausado");
+        Set("Projects:2:ApiKeys:0:Key", DISABLED_PROJECT_KEY);
 
         foreach (var (key, value) in overrides ?? [])
         {
@@ -99,12 +139,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     }
 
     public FakePushSender Sender { get; } = new();
-    public FakePhpReadForwarder Forwarder { get; } = new();
+    public FakeReadForwarder Forwarder { get; } = new();
     public FakeClock Clock { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        // "Development" cargaría los user-secrets de la máquina y haría depender las pruebas del equipo.
+        // "Development" cargaría el appsettings.Development.json de la máquina y haría depender las pruebas del equipo.
         builder.UseEnvironment("Testing");
 
         foreach (var (key, value) in _settings)
@@ -116,7 +156,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
             services.AddSingleton<IStartupFilter, RemoteIpStartupFilter>();
             services.AddSingleton<IPushSender>(Sender);
-            services.AddSingleton<IPhpReadForwarder>(Forwarder);
+            services.AddSingleton<IReadForwarder>(Forwarder);
             services.AddSingleton<TimeProvider>(Clock);
             _configureServices?.Invoke(services);
         });
@@ -138,6 +178,29 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
         return client;
     }
+
+    private void AddProject(int index, string id, string firebaseId, string hmac, string urlApi, params string[] ips)
+    {
+        var p = $"Projects:{index}";
+        Set($"{p}:Id", id);
+        Set($"{p}:Name", id);
+        Set($"{p}:Firebase:ProjectId", firebaseId);
+        Set($"{p}:Firebase:CredentialsEnvVar", "COBER_TEST_CREDENTIALS");
+        Set($"{p}:Receipts:HmacSecret", hmac);
+        Set($"{p}:UrlApi:BaseUrl", urlApi);
+        Set($"{p}:UrlApi:BearerToken", "bearer-de-prueba");
+        Set($"{p}:UrlPolicy:AllowedHosts:0", "www.cober.com.ar");
+        Set($"{p}:UrlPolicy:AllowedHosts:1", "cober.com.ar");
+        Set($"{p}:UrlPolicy:CanonicalHost", "www.cober.com.ar");
+        Set($"{p}:UrlPolicy:PathPrefix", "/app");
+
+        for (var i = 0; i < ips.Length; i++)
+        {
+            Set($"{p}:AllowedIps:{i}", ips[i]);
+        }
+    }
+
+    private void Set(string key, string value) => _settings[key] = value;
 
     private sealed class RemoteIpStartupFilter : IStartupFilter
     {

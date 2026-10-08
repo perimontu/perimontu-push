@@ -5,9 +5,6 @@ namespace CoberPush.Api.Options;
 /// <summary>Firma (recibo) que acompaña a cada push y vigencia máxima para aceptar la lectura.</summary>
 public sealed class ReceiptOptions
 {
-    public const string SECTION = "Receipts";
-
-    /// <summary>Secreto: variable de entorno <c>Receipts__HmacSecret</c> o user-secrets.</summary>
     [Required, MinLength(32)]
     public string HmacSecret { get; set; } = string.Empty;
 

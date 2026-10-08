@@ -2,19 +2,16 @@ using System.ComponentModel.DataAnnotations;
 
 namespace CoberPush.Api.Options;
 
-/// <summary>Conexión con la API PHP que recibe los reportes de lectura.</summary>
-public sealed class PhpApiOptions
+/// <summary>Conexión con la API del proyecto que recibe los reportes de lectura.</summary>
+public sealed class UrlApiOptions
 {
-    public const string SECTION = "PhpApi";
-
     [Required, Url]
     public string BaseUrl { get; set; } = string.Empty;
 
     [Required]
     public string ReadPath { get; set; } = "/read";
 
-    /// <summary>Secreto: variable de entorno <c>PhpApi__BearerToken</c> o user-secrets.</summary>
-    [Required]
+    [Required, MinLength(8)]
     public string BearerToken { get; set; } = string.Empty;
 
     [Range(1, 120)]

@@ -5,6 +5,7 @@ namespace CoberPush.Api.Tests;
 public class UrlPolicyTests
 {
     private readonly UrlPolicy _policy = TestServices.CreateUrlPolicy();
+    private readonly CoberPush.Api.Projects.Project _project = TestProjects.Create();
 
     [Theory]
     [InlineData("https://cober.com.ar/app/pwa/turnos", "https://www.cober.com.ar/app/pwa/turnos")]
@@ -13,7 +14,7 @@ public class UrlPolicyTests
     [InlineData("https://cober.com.ar:443/app/", "https://www.cober.com.ar/app/")]
     public void Acepta_y_normaliza_al_host_canonico(string input, string expected)
     {
-        Assert.True(_policy.TryNormalize(input, out var normalized));
+        Assert.True(_policy.TryNormalize(_project, input, out var normalized));
         Assert.Equal(expected, normalized);
     }
 
@@ -32,7 +33,7 @@ public class UrlPolicyTests
     [InlineData("/app/relativa")]
     public void Rechaza_urls_fuera_de_la_politica(string? input)
     {
-        Assert.False(_policy.TryNormalize(input, out var normalized));
+        Assert.False(_policy.TryNormalize(_project, input, out var normalized));
         Assert.Null(normalized);
     }
 }
