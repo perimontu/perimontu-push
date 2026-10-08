@@ -1,0 +1,39 @@
+@host = http://localhost:5117
+@apiKey = AKMPjzlk0C5NTfEg4DYUVQyauhZtG3orJbwsIvB72F9WOien
+
+### Salud
+GET {{host}}/health
+
+### Envío a tokens (dryRun: valida y no entrega)
+POST {{host}}/api/push/send
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{
+  "tokens": ["dJIIIfXyTRS17tAiHRLRJH:APA91bHbLx3xxrimtIw1v1at0TIbYMj6BtbxfnFI6Hwxk3aR5rNHGxFAelm8zcmTPlquHR91Y9V7PvUhQX4hlrpIZM9LEfcQZpLQHkCrLu1czcjRDg_G5dg"],
+  "title": "Turno confirmado",
+  "body": "Tu turno es mañana a las 10:00",
+  "url": "https://www.cober.com.ar/app/pwa/central_de_turnos",
+  "messageId": "12345",
+  "data": { "tipo": "turno" },
+  "dryRun": false
+}
+
+### Envío a un topic
+POST {{host}}/api/push/topic/novedades
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{ "title": "Novedades", "body": "Hay novedades en Cober", "dryRun": true }
+
+### Lectura (la app lo llama con los valores que recibió en data)
+POST {{host}}/api/receipts/read
+Content-Type: application/json
+
+{
+  "messageId": "12345",
+  "sentAt": 1791500000,
+  "receipt": "<data.receipt>",
+  "deviceToken": "<token FCM>",
+  "readAt": "2026-10-08T16:00:00Z"
+}
