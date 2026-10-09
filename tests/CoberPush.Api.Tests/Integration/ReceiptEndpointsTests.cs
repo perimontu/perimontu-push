@@ -16,7 +16,7 @@ public class ReceiptEndpointsTests : IDisposable
     /// <summary>Envía un push real (con sender falso) y devuelve lo que la app recibiría en <c>data</c>.</summary>
     private async Task<PushContent> SendPushAsync()
     {
-        var body = new { tokens = new[] { DEVICE_TOKEN }, title = "t", body = "b", messageId = "12345" };
+        var body = new { targets = new[] { new { token = DEVICE_TOKEN, messageId = "12345" } }, title = "t", body = "b" };
         var response = await _factory.CreateClientFrom().PostAsJsonAsync("/api/cober/push/send", body);
         response.EnsureSuccessStatusCode();
         return _factory.Sender.Sent.Last();

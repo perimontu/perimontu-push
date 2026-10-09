@@ -17,7 +17,6 @@ public class SendEndpointsTests : IDisposable
         title = "Turno confirmado",
         body = "Tu turno es mañana a las 10:00",
         url = "https://cober.com.ar/app/pwa/central_de_turnos",
-        messageId = "12345",
         data = new { tipo = "turno" }
     };
 
@@ -39,12 +38,63 @@ public class SendEndpointsTests : IDisposable
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
         Assert.Equal("cober", json.GetProperty("projectId").GetString());
-        Assert.Equal("12345", json.GetProperty("messageId").GetString());
+        Assert.False(json.TryGetProperty("messageId", out _));
         Assert.Equal(1, json.GetProperty("successCount").GetInt32());
         Assert.Equal(0, json.GetProperty("failureCount").GetInt32());
         var result = json.GetProperty("results")[0];
         Assert.Equal("…1111", result.GetProperty("target").GetString());
+        Assert.Equal(32, result.GetProperty("messageId").GetString()!.Length);
         Assert.False(result.GetProperty("removeToken").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Cada_token_recibe_su_propio_messageId_y_su_propio_recibo()
+    {
+        var response = await _factory.CreateClientFrom().PostAsJsonAsync("/api/cober/push/send", ValidBody("tok-aaaa-1", "tok-aaaa-2"));
+
+        var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        var ids = json.GetProperty("results").EnumerateArray().Select(r => r.GetProperty("messageId").GetString()).ToList();
+        Assert.Equal(2, ids.Distinct().Count());
+        Assert.Equal(ids, _factory.Sender.Sent.Select(c => c.MessageId));
+        Assert.Equal(2, _factory.Sender.Sent.Select(c => c.Receipt).Distinct().Count());
+    }
+
+    [Fact]
+    public async Task Targets_respeta_el_messageId_de_cada_destino_y_genera_el_que_falta()
+    {
+        var body = new
+        {
+            targets = new object[] { new { token = "tok-aaaa-1", messageId = "envio:1" }, new { token = "tok-aaaa-2" } },
+            title = "t",
+            body = "b"
+        };
+
+        var response = await _factory.CreateClientFrom().PostAsJsonAsync("/api/cober/push/send", body);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        var results = json.GetProperty("results");
+        Assert.Equal("envio:1", results[0].GetProperty("messageId").GetString());
+        Assert.Equal(32, results[1].GetProperty("messageId").GetString()!.Length);
+    }
+
+    [Theory]
+    [InlineData("""{"tokens":["a"],"targets":[{"token":"b"}],"title":"t","body":"b"}""")]
+    [InlineData("""{"tokens":["a"],"messageId":"x","title":"t","body":"b"}""")]
+    [InlineData("""{"targets":[{"token":"a","messageId":"x"},{"token":"b","messageId":"x"}],"title":"t","body":"b"}""")]
+    [InlineData("""{"targets":[{"token":"a"},{"token":"a"}],"title":"t","body":"b"}""")]
+    [InlineData("""{"targets":[{"token":"a","messageId":"con espacio"}],"title":"t","body":"b"}""")]
+    [InlineData("""{"targets":[{"messageId":"x"}],"title":"t","body":"b"}""")]
+    [InlineData("""{"targets":[null],"title":"t","body":"b"}""")]
+    [InlineData("""{"targets":[],"title":"t","body":"b"}""")]
+    public async Task Destinos_inconsistentes_son_400_y_no_se_envia_nada(string json)
+    {
+        var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+        var response = await _factory.CreateClientFrom().PostAsync("/api/cober/push/send", content);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(_factory.Sender.Sent);
     }
 
     [Fact]
@@ -54,7 +104,7 @@ public class SendEndpointsTests : IDisposable
 
         var sent = Assert.Single(_factory.Sender.Sent);
         Assert.Equal("https://www.cober.com.ar/app/pwa/central_de_turnos", sent.Url);
-        Assert.Equal("12345", sent.MessageId);
+        Assert.False(string.IsNullOrEmpty(sent.MessageId));
         Assert.False(string.IsNullOrEmpty(sent.Receipt));
     }
 
@@ -260,7 +310,7 @@ public class SendEndpointsTests : IDisposable
             new("x", new InvalidOperationException("ruta-secreta"));
 
         public Task<CoberPush.Api.Models.PushSendResult> SendToTokensAsync(
-            CoberPush.Api.Projects.Project project, CoberPush.Api.Models.PushContent content, IReadOnlyList<string> tokens, bool dryRun, CancellationToken ct = default)
+            CoberPush.Api.Projects.Project project, IReadOnlyList<CoberPush.Api.Models.TokenMessage> messages, bool dryRun, CancellationToken ct = default)
             => throw Failure();
 
         public Task<CoberPush.Api.Models.PushSendResult> SendToTopicAsync(
@@ -274,7 +324,7 @@ public class SendEndpointsTests : IDisposable
     private sealed class ThrowingSender : CoberPush.Api.Services.IPushSender
     {
         public Task<CoberPush.Api.Models.PushSendResult> SendToTokensAsync(
-            CoberPush.Api.Projects.Project project, CoberPush.Api.Models.PushContent content, IReadOnlyList<string> tokens, bool dryRun, CancellationToken ct = default)
+            CoberPush.Api.Projects.Project project, IReadOnlyList<CoberPush.Api.Models.TokenMessage> messages, bool dryRun, CancellationToken ct = default)
             => throw new InvalidOperationException("secreto-interno");
 
         public Task<CoberPush.Api.Models.PushSendResult> SendToTopicAsync(

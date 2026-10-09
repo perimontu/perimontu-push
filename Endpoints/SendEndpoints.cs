@@ -25,14 +25,15 @@ public static class SendEndpoints
         HttpContext http,
         SendPushRequest request,
         PushRequestValidator validator,
+        RecipientResolver resolver,
         IPushSender sender,
         ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
         var context = http.GetProjectContext();
-        var tokens = request.Tokens?.Distinct().ToList();
-        var errors = validator.ValidateTokens(tokens);
-        var build = validator.BuildContent(context.Project, request);
+        var recipients = resolver.Resolve(request);
+        var errors = recipients.Errors;
+        var build = validator.BuildContent(context.Project, request with { MessageId = null });
 
         foreach (var (field, messages) in build.Errors)
         {
@@ -44,11 +45,14 @@ public static class SendEndpoints
             return Results.ValidationProblem(errors);
         }
 
-        var result = await sender.SendToTokensAsync(context.Project, build.Content!, tokens!, request.DryRun, ct);
+        var messagesToSend = recipients.Recipients
+            .Select(r => new TokenMessage(r.Token, validator.Personalize(context.Project, build.Content!, r.MessageId)))
+            .ToList();
+        var result = await sender.SendToTokensAsync(context.Project, messagesToSend, request.DryRun, ct);
 
         loggerFactory.CreateLogger("Push").LogInformation(
-            "Envío {MessageId} ({Project}/{Consumer}): {Ok} ok, {Failed} con error (dryRun={DryRun})",
-            result.MessageId, context.Project.Id, context.Key.Name, result.SuccessCount, result.FailureCount, request.DryRun);
+            "Envío ({Project}/{Consumer}): {Total} destinos, {Ok} ok, {Failed} con error (dryRun={DryRun})",
+            context.Project.Id, context.Key.Name, messagesToSend.Count, result.SuccessCount, result.FailureCount, request.DryRun);
 
         return Results.Ok(result);
     }

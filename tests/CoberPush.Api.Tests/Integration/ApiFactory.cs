@@ -25,20 +25,20 @@ public sealed class FakePushSender : IPushSender
     public int ConnectivityCalls { get; private set; }
 
     public Task<PushSendResult> SendToTokensAsync(
-        Project project, PushContent content, IReadOnlyList<string> tokens, bool dryRun, CancellationToken ct = default)
+        Project project, IReadOnlyList<TokenMessage> messages, bool dryRun, CancellationToken ct = default)
     {
-        Sent.Add(content);
+        Sent.AddRange(messages.Select(m => m.Content));
         SentProjects.Add(project.Id);
         LastDryRun = dryRun;
 
-        var results = tokens
-            .Select(t => t == UNREGISTERED_TOKEN
-                ? new PushTargetResult(TokenMasker.Mask(t), false, null, "UNREGISTERED", true)
-                : new PushTargetResult(TokenMasker.Mask(t), true, $"projects/p/messages/{Guid.NewGuid():N}", null, false))
+        var results = messages
+            .Select(m => m.Token == UNREGISTERED_TOKEN
+                ? new PushTargetResult(TokenMasker.Mask(m.Token), m.Content.MessageId, false, null, "UNREGISTERED", true)
+                : new PushTargetResult(TokenMasker.Mask(m.Token), m.Content.MessageId, true, $"projects/p/messages/{Guid.NewGuid():N}", null, false))
             .ToList();
 
         var ok = results.Count(r => r.Success);
-        return Task.FromResult(new PushSendResult(project.Id, content.MessageId, ok, results.Count - ok, results));
+        return Task.FromResult(new PushSendResult(project.Id, ok, results.Count - ok, results));
     }
 
     public Task<PushSendResult> SendToTopicAsync(
@@ -49,8 +49,8 @@ public sealed class FakePushSender : IPushSender
         LastTopic = topic;
         LastDryRun = dryRun;
 
-        var result = new PushTargetResult($"topic:{topic}", true, "projects/p/messages/1", null, false);
-        return Task.FromResult(new PushSendResult(project.Id, content.MessageId, 1, 0, [result]));
+        var result = new PushTargetResult($"topic:{topic}", content.MessageId, true, "projects/p/messages/1", null, false);
+        return Task.FromResult(new PushSendResult(project.Id, 1, 0, [result]));
     }
 
     public Task<bool> CheckConnectivityAsync(Project project, CancellationToken ct = default)

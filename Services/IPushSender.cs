@@ -7,7 +7,7 @@ namespace CoberPush.Api.Services;
 public interface IPushSender
 {
     Task<PushSendResult> SendToTokensAsync(
-        Project project, PushContent content, IReadOnlyList<string> tokens, bool dryRun, CancellationToken ct = default);
+        Project project, IReadOnlyList<TokenMessage> messages, bool dryRun, CancellationToken ct = default);
 
     Task<PushSendResult> SendToTopicAsync(
         Project project, PushContent content, string topic, bool dryRun, CancellationToken ct = default);

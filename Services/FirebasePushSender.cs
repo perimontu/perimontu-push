@@ -13,16 +13,16 @@ public sealed class FirebasePushSender(
     private const string HEALTH_TOPIC = "healthcheck";
 
     public async Task<PushSendResult> SendToTokensAsync(
-        Project project, PushContent content, IReadOnlyList<string> tokens, bool dryRun, CancellationToken ct = default)
+        Project project, IReadOnlyList<TokenMessage> messages, bool dryRun, CancellationToken ct = default)
     {
-        var message = factory.CreateForTokens(content, tokens);
-        var response = await provider.GetMessaging(project).SendEachForMulticastAsync(message, dryRun, ct);
+        var fcmMessages = messages.Select(m => factory.CreateForToken(m.Content, m.Token)).ToList();
+        var response = await provider.GetMessaging(project).SendEachAsync(fcmMessages, dryRun, ct);
 
         var results = response.Responses
-            .Select((r, i) => ToTargetResult(TokenMasker.Mask(tokens[i]), r))
+            .Select((r, i) => ToTargetResult(TokenMasker.Mask(messages[i].Token), messages[i].Content.MessageId, r))
             .ToList();
 
-        return BuildResult(project, content.MessageId, results);
+        return BuildResult(project, results);
     }
 
     public async Task<PushSendResult> SendToTopicAsync(
@@ -34,15 +34,15 @@ public sealed class FirebasePushSender(
         try
         {
             var fcmId = await messaging.SendAsync(message, dryRun, ct);
-            return BuildResult(project, content.MessageId, [new PushTargetResult($"topic:{topic}", true, fcmId, null, false)]);
+            return BuildResult(project, [new PushTargetResult($"topic:{topic}", content.MessageId, true, fcmId, null, false)]);
         }
         catch (FirebaseMessagingException ex)
         {
             logger.LogWarning(ex, "FCM rechazó el envío al topic {Topic} ({Project}): {Code}",
                 topic, project.Id, ex.MessagingErrorCode);
 
-            return BuildResult(project, content.MessageId,
-                [new PushTargetResult($"topic:{topic}", false, null, FcmErrorMapper.ToCode(ex.MessagingErrorCode), false)]);
+            return BuildResult(project,
+                [new PushTargetResult($"topic:{topic}", content.MessageId, false, null, FcmErrorMapper.ToCode(ex.MessagingErrorCode), false)]);
         }
     }
 
@@ -67,21 +67,21 @@ public sealed class FirebasePushSender(
         }
     }
 
-    private static PushTargetResult ToTargetResult(string target, SendResponse response)
+    private static PushTargetResult ToTargetResult(string target, string messageId, SendResponse response)
     {
         if (response.IsSuccess)
         {
-            return new PushTargetResult(target, true, response.MessageId, null, false);
+            return new PushTargetResult(target, messageId, true, response.MessageId, null, false);
         }
 
         var code = response.Exception?.MessagingErrorCode;
         return new PushTargetResult(
-            target, false, null, FcmErrorMapper.ToCode(code), FcmErrorMapper.ShouldRemoveToken(code));
+            target, messageId, false, null, FcmErrorMapper.ToCode(code), FcmErrorMapper.ShouldRemoveToken(code));
     }
 
-    private static PushSendResult BuildResult(Project project, string messageId, IReadOnlyList<PushTargetResult> results)
+    private static PushSendResult BuildResult(Project project, IReadOnlyList<PushTargetResult> results)
     {
         var success = results.Count(r => r.Success);
-        return new PushSendResult(project.Id, messageId, success, results.Count - success, results);
+        return new PushSendResult(project.Id, success, results.Count - success, results);
     }
 }

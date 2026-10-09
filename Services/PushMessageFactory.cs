@@ -10,14 +10,14 @@ public sealed class PushMessageFactory(IOptions<PushOptions> options)
 {
     private readonly PushOptions _options = options.Value;
 
-    public MulticastMessage CreateForTokens(PushContent content, IReadOnlyList<string> tokens)
+    public Message CreateForToken(PushContent content, string token)
     {
-        // FirebaseAdmin 3.7 marca Tokens como obsoleto a favor de Fids (Firebase Installation IDs), pero CoberApp
+        // FirebaseAdmin 3.7 marca Token como obsoleto a favor de Fid (Firebase Installation ID), pero CoberApp
         // todavía obtiene un token de registro FCM clásico. Revisar cuando la app migre a FIDs.
 #pragma warning disable CS0618
-        return new MulticastMessage
+        return new Message
         {
-            Tokens = tokens.ToList(),
+            Token = token,
             Notification = BuildNotification(content),
             Data = BuildData(content),
             Android = BuildAndroid(content)

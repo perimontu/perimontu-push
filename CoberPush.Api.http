@@ -1,6 +1,6 @@
 @host = http://localhost:5117
 @project = cober
-@apiKey = cpk_SX2kdP8e6C65xgn4YIMoBzJ7ti3mIY9mZQqnAZ5iJ7CJd0HJ
+@apiKey = cpk_SX2kdP8e6C65xgn4YIMoBzJ7ti3mIY9mZQqnAZ5iJ7CJd0H1
 
 ### Salud del proceso (pública)
 GET {{host}}/health
@@ -15,11 +15,15 @@ Content-Type: application/json
 X-Api-Key: {{apiKey}}
 
 {
-  "tokens": ["dJIIIfXyTRS17tAiHRLRJH:APA91bHbLx3xxrimtIw1v1at0TIbYMj6BtbxfnFI6Hwxk3aR5rNHGxFAelm8zcmTPlquHR91Y9V7PvUhQX4hlrpIZM9LEfcQZpLQHkCrLu1czcjRDg_G5dg"],
+  "targets": [
+    {
+      "token": "dJIIIfXyTRS17tAiHRLRJH:APA91bHbLx3xxrimtIw1v1at0TIbYMj6BtbxfnFI6Hwxk3aR5rNHGxFAelm8zcmTPlquHR91Y9V7PvUhQX4hlrpIZM9LEfcQZpLQHkCrLu1czcjRDg_G5dg",
+      "messageId": "envio:12345"
+    }
+  ],
   "title": "Turno confirmado",
   "body": "Tu turno es mañana a las 10:00",
   "url": "https://www.cober.com.ar/app/pwa/central_de_turnos",
-  "messageId": "12345",
   "data": { "tipo": "turno" },
   "dryRun": false
 }

@@ -23,6 +23,7 @@ public sealed partial class PushRequestValidator(
     private const int MAX_URL_LENGTH = 2000;
     private const int MAX_TTL_SECONDS = 2_419_200;
     private const int MAX_PAYLOAD_BYTES = 4000; // FCM admite 4096; se deja margen para el resto del sobre
+    private const int MAX_MESSAGE_ID_LENGTH = 64;
 
     private readonly PushOptions _options = options.Value;
 
@@ -60,6 +61,15 @@ public sealed partial class PushRequestValidator(
             messageId, title!, body!, url, imageUrl, sentAt, signer.Sign(project, messageId, sentAt), data, ttl);
 
         return CheckPayloadSize(content, errors);
+    }
+
+    /// <summary>Formato permitido de un messageId (letras, números y . _ : -, hasta 64).</summary>
+    public static bool IsValidMessageId(string messageId) => MessageIdRegex().IsMatch(messageId);
+
+    /// <summary>Copia el contenido para un destino: su propio messageId y su propio recibo firmado.</summary>
+    public PushContent Personalize(Project project, PushContent content, string messageId)
+    {
+        return content with { MessageId = messageId, Receipt = signer.Sign(project, messageId, content.SentAt) };
     }
 
     public Dictionary<string, string[]> ValidateTokens(IReadOnlyCollection<string>? tokens)
@@ -239,7 +249,7 @@ public sealed partial class PushRequestValidator(
             + Encoding.UTF8.GetByteCount(content.Body)
             + Encoding.UTF8.GetByteCount(content.Url ?? string.Empty)
             + Encoding.UTF8.GetByteCount(content.ImageUrl ?? string.Empty)
-            + Encoding.UTF8.GetByteCount(content.MessageId)
+            + MAX_MESSAGE_ID_LENGTH // peor caso: cada destino puede llevar su propio messageId
             + Encoding.UTF8.GetByteCount(content.Receipt)
             + content.SentAt.ToString(CultureInfo.InvariantCulture).Length
             + content.Data.Sum(d => Encoding.UTF8.GetByteCount(d.Key) + Encoding.UTF8.GetByteCount(d.Value));

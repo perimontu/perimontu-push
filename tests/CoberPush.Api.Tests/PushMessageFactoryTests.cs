@@ -19,7 +19,11 @@ public class PushMessageFactoryTests
     [Fact]
     public void Tokens_lleva_notification_data_y_android()
     {
-        var message = _factory.CreateForTokens(Content(), ["t1", "t2"]);
+        var message = _factory.CreateForToken(Content(), "t1");
+
+#pragma warning disable CS0618 // Message.Token (ver PushMessageFactory)
+        Assert.Equal("t1", message.Token);
+#pragma warning restore CS0618
 
         Assert.Equal("Turno", message.Notification.Title);
         Assert.Equal("Mañana 10:00", message.Notification.Body);
@@ -32,7 +36,7 @@ public class PushMessageFactoryTests
     [Fact]
     public void Data_incluye_contrato_con_la_app()
     {
-        var message = _factory.CreateForTokens(Content(), ["t1"]);
+        var message = _factory.CreateForToken(Content(), "t1");
 
         Assert.Equal("12345", message.Data["messageId"]);
         Assert.Equal("1791500000", message.Data["sentAt"]);
@@ -44,7 +48,7 @@ public class PushMessageFactoryTests
     [Fact]
     public void Sin_url_no_se_envia_la_clave_url()
     {
-        var message = _factory.CreateForTokens(Content(url: null), ["t1"]);
+        var message = _factory.CreateForToken(Content(url: null), "t1");
 
         Assert.False(message.Data.ContainsKey("url"));
     }
@@ -60,7 +64,7 @@ public class PushMessageFactoryTests
             ["sentAt"] = "0"
         };
 
-        var message = _factory.CreateForTokens(Content(data: evil), ["t1"]);
+        var message = _factory.CreateForToken(Content(data: evil), "t1");
 
         Assert.Equal("https://www.cober.com.ar/app/x", message.Data["url"]);
         Assert.Equal("12345", message.Data["messageId"]);

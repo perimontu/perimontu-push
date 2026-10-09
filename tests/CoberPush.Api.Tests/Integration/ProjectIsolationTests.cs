@@ -14,7 +14,7 @@ public class ProjectIsolationTests : IDisposable
 
     public void Dispose() => _factory.Dispose();
 
-    private static object Body() => new { tokens = new[] { "token-aaaa-1111" }, title = "t", body = "b", messageId = "12345" };
+    private static object Body() => new { tokens = new[] { "token-aaaa-1111" }, title = "t", body = "b" };
 
     private static object ReadBody(PushContent content) =>
         new { messageId = content.MessageId, sentAt = content.SentAt, receipt = content.Receipt, deviceToken = DEVICE_TOKEN };

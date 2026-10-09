@@ -62,6 +62,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPushSender, FirebasePushSender>();
         services.AddSingleton<IProjectHealthChecker, ProjectHealthChecker>();
         services.AddSingleton<PushRequestValidator>();
+        services.AddSingleton<RecipientResolver>();
         services.AddSingleton<ReadReceiptValidator>();
     }
 
