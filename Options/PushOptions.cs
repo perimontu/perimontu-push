@@ -19,4 +19,8 @@ public sealed class PushOptions
 
     [Required]
     public string AndroidChannelId { get; set; } = "cober_general";
+
+    /// <summary>Sonido de la notificación en iOS (aps.sound). "default" = sonido por defecto del sistema.</summary>
+    [Required]
+    public string ApnsSound { get; set; } = "default";
 }

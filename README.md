@@ -83,3 +83,4 @@ Las pruebas usan un Firebase y un backend de destino simulados; la entrega real 
 - `success: true` en un envío significa que **FCM aceptó el mensaje**, no que llegó al dispositivo.
 - `SENDER_ID_MISMATCH` (el token es de otro proyecto de Firebase) se informa como `NO_EXISTE` y **no** pide borrar el token.
 - FirebaseAdmin 3.7 marca `MulticastMessage.Tokens` como obsoleto a favor de `Fids`; hoy la app usa tokens de registro, por eso se sigue usando `Tokens`.
+- **iOS (APNs):** cada mensaje (token y topic) incluye `ApnsConfig` con `aps.sound` (`Push:ApnsSound`, por defecto `"default"`), `apns-priority: 10` y `apns-expiration` = ahora + TTL (0 si el TTL es 0). Sin esto las push de iOS llegan sin sonido y sin respetar el TTL. FCM completa `apns-push-type` por su cuenta.

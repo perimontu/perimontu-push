@@ -5,9 +5,13 @@ using Microsoft.Extensions.Options;
 
 namespace CoberPush.Api.Services;
 
-/// <summary>Arma los mensajes FCM (notification + data + config Android) a partir del contenido ya validado.</summary>
+/// <summary>Arma los mensajes FCM (notification + data + config Android + config APNs/iOS) a partir del contenido ya validado.</summary>
 public sealed class PushMessageFactory(IOptions<PushOptions> options)
 {
+    private const string APNS_PRIORITY_HEADER = "apns-priority";
+    private const string APNS_PRIORITY_IMMEDIATE = "10";
+    private const string APNS_EXPIRATION_HEADER = "apns-expiration";
+
     private readonly PushOptions _options = options.Value;
 
     public Message CreateForToken(PushContent content, string token)
@@ -20,7 +24,8 @@ public sealed class PushMessageFactory(IOptions<PushOptions> options)
             Token = token,
             Notification = BuildNotification(content),
             Data = BuildData(content),
-            Android = BuildAndroid(content)
+            Android = BuildAndroid(content),
+            Apns = BuildApns(content)
         };
 #pragma warning restore CS0618
     }
@@ -32,7 +37,8 @@ public sealed class PushMessageFactory(IOptions<PushOptions> options)
             Topic = topic,
             Notification = BuildNotification(content),
             Data = BuildData(content),
-            Android = BuildAndroid(content)
+            Android = BuildAndroid(content),
+            Apns = BuildApns(content)
         };
     }
 
@@ -67,6 +73,28 @@ public sealed class PushMessageFactory(IOptions<PushOptions> options)
             Priority = Priority.High,
             TimeToLive = TimeSpan.FromSeconds(content.TtlSeconds),
             Notification = new AndroidNotification { ChannelId = _options.AndroidChannelId }
+        };
+    }
+
+    /// <summary>
+    /// iOS: el sonido no viene por defecto, hay que pedirlo en aps.sound. apns-priority 10 = entrega inmediata;
+    /// apns-expiration (epoch en segundos; 0 = no reintentar) equivale al TTL de Android. FCM completa por su
+    /// cuenta apns-push-type a partir del payload.
+    /// </summary>
+    private ApnsConfig BuildApns(PushContent content)
+    {
+        var expiration = content.TtlSeconds == 0
+            ? 0
+            : DateTimeOffset.UtcNow.AddSeconds(content.TtlSeconds).ToUnixTimeSeconds();
+
+        return new ApnsConfig
+        {
+            Headers = new Dictionary<string, string>
+            {
+                [APNS_PRIORITY_HEADER] = APNS_PRIORITY_IMMEDIATE,
+                [APNS_EXPIRATION_HEADER] = expiration.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            },
+            Aps = new Aps { Sound = _options.ApnsSound }
         };
     }
 }

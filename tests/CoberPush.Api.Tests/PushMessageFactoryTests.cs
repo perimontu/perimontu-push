@@ -90,4 +90,45 @@ public class PushMessageFactoryTests
 
         Assert.Equal("otro", factory.CreateForTopic(Content(), "t").Android.Notification.ChannelId);
     }
+
+    [Fact]
+    public void Token_lleva_apns_con_sonido_prioridad_y_expiracion()
+    {
+        var before = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        var message = _factory.CreateForToken(Content(), "t1");
+
+        Assert.Equal("default", message.Apns.Aps.Sound);
+        Assert.Equal("10", message.Apns.Headers["apns-priority"]);
+        var expiration = long.Parse(message.Apns.Headers["apns-expiration"]);
+        Assert.InRange(expiration, before + 3600, DateTimeOffset.UtcNow.ToUnixTimeSeconds() + 3600);
+    }
+
+    [Fact]
+    public void Topic_lleva_apns_con_sonido_y_prioridad()
+    {
+        var message = _factory.CreateForTopic(Content(), "novedades");
+
+        Assert.Equal("default", message.Apns.Aps.Sound);
+        Assert.Equal("10", message.Apns.Headers["apns-priority"]);
+        Assert.True(message.Apns.Headers.ContainsKey("apns-expiration"));
+    }
+
+    [Fact]
+    public void Ttl_cero_no_reintenta_en_apns()
+    {
+        var content = Content() with { TtlSeconds = 0 };
+
+        var message = _factory.CreateForToken(content, "t1");
+
+        Assert.Equal("0", message.Apns.Headers["apns-expiration"]);
+    }
+
+    [Fact]
+    public void Sonido_de_apns_es_configurable()
+    {
+        var factory = new PushMessageFactory(Opt.Of(new PushOptions { ApnsSound = "aviso.caf" }));
+
+        Assert.Equal("aviso.caf", factory.CreateForTopic(Content(), "t").Apns.Aps.Sound);
+    }
 }
