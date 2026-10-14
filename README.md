@@ -25,6 +25,7 @@ Todo vive en el array `Projects` de `appsettings`. Cada proyecto reúne su backe
   "Id": "cober",
   "Name": "Cober Touch",
   "Enabled": true,
+  "AndroidChannelId": "cober_general",
   "Firebase": { "ProjectId": "cober-touch-64940", "CredentialsEnvVar": "GOOGLE_APPLICATION_CREDENTIALS" },
   "AllowedIps": [ "203.0.113.10", "198.51.100.0/24" ],
   "ApiKeys": [
@@ -43,6 +44,7 @@ Todo vive en el array `Projects` de `appsettings`. Cada proyecto reúne su backe
 
 | Campo | Detalle |
 |---|---|
+| `AndroidChannelId` | Opcional. Canal de notificaciones Android de la app de este proyecto (cada marca de CoberApp define el suyo en `brand.props`/`BrandChannelId` y debe coincidir). Vacío = se usa `Push:AndroidChannelId` |
 | `Firebase.CredentialsEnvVar` | **Nombre** de la variable de entorno cuyo valor es la ruta al JSON de la cuenta de servicio (no `google-services.json`). El JSON debe ser del `Firebase.ProjectId` indicado; si no, el envío responde `503` |
 | `AllowedIps` | IP suelta o CIDR. Nivel proyecto; una key que define las suyas **sobrescribe** estas. Vacío en ambos niveles = nadie puede enviar |
 | `ApiKeys[].Key` | En texto plano, ≥ 32 caracteres, única en todo el archivo. Para rotar: agregar otra key y poner `Enabled: false` a la vieja |

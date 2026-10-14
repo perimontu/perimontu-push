@@ -14,7 +14,8 @@ public sealed class PushMessageFactory(IOptions<PushOptions> options)
 
     private readonly PushOptions _options = options.Value;
 
-    public Message CreateForToken(PushContent content, string token)
+    /// <param name="androidChannelId">Canal Android del proyecto; si es nulo o vacío se usa el global (<c>Push.AndroidChannelId</c>).</param>
+    public Message CreateForToken(PushContent content, string token, string? androidChannelId = null)
     {
         // FirebaseAdmin 3.7 marca Token como obsoleto a favor de Fid (Firebase Installation ID), pero CoberApp
         // todavía obtiene un token de registro FCM clásico. Revisar cuando la app migre a FIDs.
@@ -24,20 +25,20 @@ public sealed class PushMessageFactory(IOptions<PushOptions> options)
             Token = token,
             Notification = BuildNotification(content),
             Data = BuildData(content),
-            Android = BuildAndroid(content),
+            Android = BuildAndroid(content, androidChannelId),
             Apns = BuildApns(content)
         };
 #pragma warning restore CS0618
     }
 
-    public Message CreateForTopic(PushContent content, string topic)
+    public Message CreateForTopic(PushContent content, string topic, string? androidChannelId = null)
     {
         return new Message
         {
             Topic = topic,
             Notification = BuildNotification(content),
             Data = BuildData(content),
-            Android = BuildAndroid(content),
+            Android = BuildAndroid(content, androidChannelId),
             Apns = BuildApns(content)
         };
     }
@@ -66,13 +67,16 @@ public sealed class PushMessageFactory(IOptions<PushOptions> options)
         return data;
     }
 
-    private AndroidConfig BuildAndroid(PushContent content)
+    private AndroidConfig BuildAndroid(PushContent content, string? androidChannelId)
     {
         return new AndroidConfig
         {
             Priority = Priority.High,
             TimeToLive = TimeSpan.FromSeconds(content.TtlSeconds),
-            Notification = new AndroidNotification { ChannelId = _options.AndroidChannelId }
+            Notification = new AndroidNotification
+            {
+                ChannelId = string.IsNullOrWhiteSpace(androidChannelId) ? _options.AndroidChannelId : androidChannelId
+            }
         };
     }
 

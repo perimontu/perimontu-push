@@ -15,7 +15,7 @@ public sealed class FirebasePushSender(
     public async Task<PushSendResult> SendToTokensAsync(
         Project project, IReadOnlyList<TokenMessage> messages, bool dryRun, CancellationToken ct = default)
     {
-        var fcmMessages = messages.Select(m => factory.CreateForToken(m.Content, m.Token)).ToList();
+        var fcmMessages = messages.Select(m => factory.CreateForToken(m.Content, m.Token, project.AndroidChannelId)).ToList();
         var response = await provider.GetMessaging(project).SendEachAsync(fcmMessages, dryRun, ct);
 
         var results = response.Responses
@@ -28,7 +28,7 @@ public sealed class FirebasePushSender(
     public async Task<PushSendResult> SendToTopicAsync(
         Project project, PushContent content, string topic, bool dryRun, CancellationToken ct = default)
     {
-        var message = factory.CreateForTopic(content, topic);
+        var message = factory.CreateForTopic(content, topic, project.AndroidChannelId);
         var messaging = provider.GetMessaging(project);
 
         try

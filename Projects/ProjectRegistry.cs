@@ -36,6 +36,7 @@ public sealed class ProjectRegistry : IProjectRegistry
             Id = options.Id,
             Name = string.IsNullOrWhiteSpace(options.Name) ? options.Id : options.Name,
             Enabled = options.Enabled,
+            AndroidChannelId = string.IsNullOrWhiteSpace(options.AndroidChannelId) ? null : options.AndroidChannelId.Trim(),
             FirebaseProjectId = options.Firebase.ProjectId,
             CredentialsEnvVar = options.Firebase.CredentialsEnvVar,
             ApiKeys = options.ApiKeys.Select(k => BuildKey(k, projectIps, options.DefaultRateLimit)).ToList(),

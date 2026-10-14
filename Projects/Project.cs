@@ -12,6 +12,9 @@ public sealed class Project
 
     public required bool Enabled { get; init; }
 
+    /// <summary>Canal Android propio del proyecto; nulo = se usa el global (Push.AndroidChannelId).</summary>
+    public string? AndroidChannelId { get; init; }
+
     public required string FirebaseProjectId { get; init; }
 
     /// <summary>Nombre de la variable de entorno que contiene la ruta al JSON de Firebase.</summary>

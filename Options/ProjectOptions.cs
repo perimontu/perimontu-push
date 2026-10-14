@@ -21,6 +21,9 @@ public sealed class ProjectOptions
 
     public bool Enabled { get; set; } = true;
 
+    /// <summary>Canal de notificaciones Android de la app de este proyecto (cada marca define el suyo). Vacío = usa <c>Push.AndroidChannelId</c>.</summary>
+    public string? AndroidChannelId { get; set; }
+
     [Required]
     public FirebaseOptions Firebase { get; set; } = new();
 

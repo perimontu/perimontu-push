@@ -92,6 +92,22 @@ public class PushMessageFactoryTests
     }
 
     [Fact]
+    public void Canal_del_proyecto_tiene_prioridad_sobre_el_global()
+    {
+        Assert.Equal("marcab_general", _factory.CreateForToken(Content(), "t1", "marcab_general").Android.Notification.ChannelId);
+        Assert.Equal("marcab_general", _factory.CreateForTopic(Content(), "t", "marcab_general").Android.Notification.ChannelId);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void Canal_del_proyecto_vacio_usa_el_global(string? projectChannel)
+    {
+        Assert.Equal("cober_general", _factory.CreateForToken(Content(), "t1", projectChannel).Android.Notification.ChannelId);
+    }
+
+    [Fact]
     public void Token_lleva_apns_con_sonido_prioridad_y_expiracion()
     {
         var before = DateTimeOffset.UtcNow.ToUnixTimeSeconds();

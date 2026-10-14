@@ -42,6 +42,20 @@ public class ProjectRegistryTests
         Assert.Equal("cober", project!.Name);
     }
 
+    [Theory]
+    [InlineData("marcab_general", "marcab_general")]
+    [InlineData("  marcab_general ", "marcab_general")]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void El_canal_android_del_proyecto_es_opcional(string? configured, string? expected)
+    {
+        var registry = Registry(TestProjects.Options("cober", o => o.AndroidChannelId = configured));
+
+        registry.TryGet("cober", out var project);
+
+        Assert.Equal(expected, project!.AndroidChannelId);
+    }
+
     [Fact]
     public void La_key_sin_ips_propias_hereda_las_del_proyecto()
     {
